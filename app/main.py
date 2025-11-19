@@ -1,7 +1,5 @@
 # app/main.py
 
-import os
-import psycopg2
 import logging
 
 from fastapi import FastAPI, BackgroundTasks, Request
@@ -29,31 +27,15 @@ async def health():
     return {"status": "ok"}
 
 
-def _check_db_connection():
-    """Minimal sync DB check: SELECT 1."""
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres-db"),
-        port=os.getenv("POSTGRES_PORT", "5432"),
-        dbname=os.getenv("POSTGRES_DB", "motion_data"),
-        user=os.getenv("POSTGRES_USER", "simphony"),
-        password=os.getenv("POSTGRES_PASSWORD", "CHANGE_ME"),
-    )
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1;")
-            cur.fetchone()
-    finally:
-        conn.close()
-
-
 @app.get("/health/db")
 async def health_db():
     """
-    Readiness probe: verifies DB connectivity by running SELECT 1.
-    Returns 500 with error details if DB is not reachable.
+    Readiness probe: verifies DB connectivity by reusing the same logic
+    that ensures the idempotency table on startup.
     """
     try:
-        _check_db_connection()
+        # Uses the same connection/settings as the real worker logic.
+        ensure_processed_table()
         return {"status": "ok"}
     except Exception as e:
         logger.exception("DB health check failed")
