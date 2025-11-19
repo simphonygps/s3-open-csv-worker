@@ -2,7 +2,6 @@
 
 import logging
 
-from botocore.exceptions import ClientError
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
@@ -35,7 +34,6 @@ async def health_db():
     that ensures the idempotency table on startup.
     """
     try:
-        # Uses the same connection/settings as the real worker logic.
         ensure_processed_table()
         return {"status": "ok"}
     except Exception as e:
@@ -58,60 +56,32 @@ def on_startup():
 
 
 # ---------------------------------------------------------------------------
-# Core processing logic
+# Core processing logic (TEMPORARY TEST MODE)
 # ---------------------------------------------------------------------------
 
 def handle_object(bucket: str, key: str):
     """
-    Main processing pipeline for a single S3/MinIO object:
-    1. Check idempotency table
-    2. Download CSV from S3/MinIO
-    3. Process CSV
-    4. Mark as processed
+    TEMPORARY: idempotency-only test.
 
-    All stages are wrapped in try/except so that errors are logged
-    but do not crash the FastAPI app or background worker.
+    We deliberately SKIP:
+      - S3 download (download_object_to_bytes)
+      - CSV parsing (process_csv_bytes)
+
+    And only:
+      - Check if the object was already processed
+      - Insert into s3_processed_files if not
+
+    This lets us verify webhook + DB + idempotency logic without involving S3/CSV.
     """
-    logger.info("Handling object: %s/%s", bucket, key)
+    logger.info("TEST MODE: handling object for idempotency only: %s/%s", bucket, key)
 
-    # 1) Idempotency check
-    try:
-        if is_object_processed(bucket, key):
-            logger.info("Object already processed, skipping: %s/%s", bucket, key)
-            return
-    except Exception:
-        logger.exception("Failed to check idempotency for %s/%s", bucket, key)
+    if is_object_processed(bucket, key):
+        logger.info("Already processed (found in s3_processed_files), skipping: %s/%s", bucket, key)
         return
 
-    # 2) Download CSV from S3/MinIO
-    try:
-        logger.info("Downloading object: %s/%s", bucket, key)
-        csv_bytes = download_object_to_bytes(bucket, key)
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code")
-        if code == "NoSuchKey":
-            logger.warning("Object not found in S3 (NoSuchKey): %s/%s", bucket, key)
-        else:
-            logger.exception("S3 client error while downloading %s/%s", bucket, key)
-        return
-    except Exception:
-        logger.exception("Unexpected error while downloading %s/%s", bucket, key)
-        return
-
-    # 3) Process CSV contents
-    try:
-        logger.info("Processing CSV for object: %s/%s", bucket, key)
-        process_csv_bytes(csv_bytes)
-    except Exception:
-        logger.exception("Error while processing CSV for %s/%s", bucket, key)
-        return
-
-    # 4) Mark as processed
-    try:
-        mark_object_processed(bucket, key)
-        logger.info("Marked object processed: %s/%s", bucket, key)
-    except Exception:
-        logger.exception("Failed to mark object processed: %s/%s", bucket, key)
+    logger.info("Marking object processed in s3_processed_files: %s/%s", bucket, key)
+    mark_object_processed(bucket, key)
+    logger.info("Marked object processed: %s/%s", bucket, key)
 
 
 # ---------------------------------------------------------------------------
