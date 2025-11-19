@@ -5,7 +5,7 @@ import logging
 
 from .config import get_settings
 from .db import ensure_processed_table, is_object_processed, mark_object_processed
-from .s3_client.py import download_object_to_bytes
+from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
 
 settings = get_settings()
