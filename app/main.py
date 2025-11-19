@@ -1,7 +1,11 @@
 # app/main.py
+
+import os
+import psycopg2
+import logging
+
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
-import logging
 
 from .config import get_settings
 from .db import ensure_processed_table, is_object_processed, mark_object_processed
@@ -15,12 +19,64 @@ logger = logging.getLogger("s3-open-csv-worker")
 logging.basicConfig(level=logging.INFO)
 
 
+# ---------------------------------------------------------------------------
+# Health endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+async def health():
+    """Simple liveness probe."""
+    return {"status": "ok"}
+
+
+def _check_db_connection():
+    """Minimal sync DB check: SELECT 1."""
+    conn = psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST", "postgres-db"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "motion_data"),
+        user=os.getenv("POSTGRES_USER", "simphony"),
+        password=os.getenv("POSTGRES_PASSWORD", "CHANGE_ME"),
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+            cur.fetchone()
+    finally:
+        conn.close()
+
+
+@app.get("/health/db")
+async def health_db():
+    """
+    Readiness probe: verifies DB connectivity by running SELECT 1.
+    Returns 500 with error details if DB is not reachable.
+    """
+    try:
+        _check_db_connection()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.exception("DB health check failed")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": str(e)},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Startup hook
+# ---------------------------------------------------------------------------
+
 @app.on_event("startup")
 def on_startup():
     logger.info("Starting s3-open-csv-worker...")
     ensure_processed_table()
     logger.info("Idempotency table ensured.")
 
+
+# ---------------------------------------------------------------------------
+# Core processing logic
+# ---------------------------------------------------------------------------
 
 def handle_object(bucket: str, key: str):
     if is_object_processed(bucket, key):
@@ -36,6 +92,10 @@ def handle_object(bucket: str, key: str):
     mark_object_processed(bucket, key)
     logger.info("Marked object processed: %s/%s", bucket, key)
 
+
+# ---------------------------------------------------------------------------
+# Webhook endpoint
+# ---------------------------------------------------------------------------
 
 @app.post("/minio-webhook")
 async def minio_webhook(request: Request, background_tasks: BackgroundTasks):
