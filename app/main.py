@@ -2,8 +2,6 @@
 
 import logging
 
-import boto3
-from botocore.config import Config as BotoConfig
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
@@ -17,28 +15,6 @@ app = FastAPI(title="s3-open-csv-worker")
 
 logger = logging.getLogger("s3-open-csv-worker")
 logging.basicConfig(level=logging.INFO)
-
-
-# ---------------------------------------------------------------------------
-# Internal helper: S3 client for health checks
-# ---------------------------------------------------------------------------
-
-def _get_s3_client_for_health():
-    """
-    Lightweight S3 client used only for /health/s3.
-
-    Uses the same settings as the main worker (endpoint, access key, secret,
-    region). If any of these are missing in settings, boto3 will still try
-    to construct a client and /health/s3 will return an error, which is fine.
-    """
-    return boto3.client(
-        "s3",
-        endpoint_url=getattr(settings, "s3_endpoint_url", None),
-        aws_access_key_id=getattr(settings, "s3_access_key", None),
-        aws_secret_access_key=getattr(settings, "s3_secret_key", None),
-        region_name=getattr(settings, "s3_region", None),
-        config=BotoConfig(signature_version="s3v4"),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -73,17 +49,28 @@ async def health_s3():
     """
     S3/MinIO health probe.
 
-    Performs a lightweight ListObjectsV2 call against the configured bucket.
-    If MinIO/S3 is reachable and credentials are valid, returns {"status": "ok"}.
-    Otherwise returns 500 with an error description.
+    For now we implement it in the simplest and most reliable way:
+    - Reuse the existing download_object_to_bytes() helper.
+    - Try to download a known small test object from MinIO.
+    If we can read non-empty bytes, S3/MinIO is considered "ok".
+    Otherwise we return 500 with the error.
     """
-    try:
-        client = _get_s3_client_for_health()
-        bucket = getattr(settings, "s3_bucket", None)
-        if not bucket:
-            raise RuntimeError("settings.s3_bucket is not configured")
+    bucket = "simphony-dev"
+    key = "csv-worker/test-download.csv"
 
-        client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+    try:
+        logger.info("[S3-HEALTH] Checking S3 by downloading %s/%s", bucket, key)
+        data = download_object_to_bytes(bucket, key)
+        size = len(data) if data is not None else 0
+        if size == 0:
+            raise RuntimeError(f"Downloaded 0 bytes from {bucket}/{key}")
+
+        logger.info(
+            "[S3-HEALTH] Successfully downloaded %d bytes from %s/%s",
+            size,
+            bucket,
+            key,
+        )
         return {"status": "ok"}
     except Exception as e:
         logger.exception("S3 health check failed")
