@@ -2,19 +2,43 @@
 
 import logging
 
+import boto3
+from botocore.config import Config as BotoConfig
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import ensure_processed_table, is_object_processed, mark_object_processed
 from .s3_client import download_object_to_bytes
-from .csv_processor import process_csv_bytes
+from .csv_processor import process_csv_bytes  # kept for future use
 
 settings = get_settings()
 app = FastAPI(title="s3-open-csv-worker")
 
 logger = logging.getLogger("s3-open-csv-worker")
 logging.basicConfig(level=logging.INFO)
+
+
+# ---------------------------------------------------------------------------
+# Internal helper: S3 client for health checks
+# ---------------------------------------------------------------------------
+
+def _get_s3_client_for_health():
+    """
+    Lightweight S3 client used only for /health/s3.
+
+    Uses the same settings as the main worker (endpoint, access key, secret,
+    region). If any of these are missing in settings, boto3 will still try
+    to construct a client and /health/s3 will return an error, which is fine.
+    """
+    return boto3.client(
+        "s3",
+        endpoint_url=getattr(settings, "s3_endpoint_url", None),
+        aws_access_key_id=getattr(settings, "s3_access_key", None),
+        aws_secret_access_key=getattr(settings, "s3_secret_key", None),
+        region_name=getattr(settings, "s3_region", None),
+        config=BotoConfig(signature_version="s3v4"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +68,31 @@ async def health_db():
         )
 
 
+@app.get("/health/s3")
+async def health_s3():
+    """
+    S3/MinIO health probe.
+
+    Performs a lightweight ListObjectsV2 call against the configured bucket.
+    If MinIO/S3 is reachable and credentials are valid, returns {"status": "ok"}.
+    Otherwise returns 500 with an error description.
+    """
+    try:
+        client = _get_s3_client_for_health()
+        bucket = getattr(settings, "s3_bucket", None)
+        if not bucket:
+            raise RuntimeError("settings.s3_bucket is not configured")
+
+        client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.exception("S3 health check failed")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": str(e)},
+        )
+
+
 # ---------------------------------------------------------------------------
 # Startup hook
 # ---------------------------------------------------------------------------
@@ -56,32 +105,75 @@ def on_startup():
 
 
 # ---------------------------------------------------------------------------
-# Core processing logic (TEMPORARY TEST MODE)
+# Core processing logic (S3 download + idempotency, CSV still disabled)
 # ---------------------------------------------------------------------------
 
 def handle_object(bucket: str, key: str):
     """
-    TEMPORARY: idempotency-only test.
+    Handle an S3/MinIO object notification.
 
-    We deliberately SKIP:
-      - S3 download (download_object_to_bytes)
-      - CSV parsing (process_csv_bytes)
+    Current behavior:
+      - Check idempotency (s3_processed_files)
+      - Download object bytes from S3/MinIO
+      - Log size and first 200 bytes
+      - Mark object as processed
 
-    And only:
-      - Check if the object was already processed
-      - Insert into s3_processed_files if not
-
-    This lets us verify webhook + DB + idempotency logic without involving S3/CSV.
+    CSV parsing (process_csv_bytes) is intentionally NOT called yet.
+    This keeps the pipeline simple for now: webhook → S3 download → DB mark.
     """
-    logger.info("TEST MODE: handling object for idempotency only: %s/%s", bucket, key)
+    logger.info("[S3] Handling object: %s/%s", bucket, key)
 
+    # Idempotency check
     if is_object_processed(bucket, key):
-        logger.info("Already processed (found in s3_processed_files), skipping: %s/%s", bucket, key)
+        logger.info(
+            "[S3] Already processed (found in s3_processed_files), skipping: %s/%s",
+            bucket,
+            key,
+        )
         return
 
-    logger.info("Marking object processed in s3_processed_files: %s/%s", bucket, key)
+    # Download from S3/MinIO
+    try:
+        logger.info("[S3] Downloading object bytes from MinIO/S3: %s/%s", bucket, key)
+        data = download_object_to_bytes(bucket, key)
+        size = len(data) if data is not None else 0
+        logger.info(
+            "[S3] Downloaded %d bytes for object %s/%s",
+            size,
+            bucket,
+            key,
+        )
+        preview = data[:200] if data else b""
+        logger.info("[S3] First 200 bytes for %s/%s: %r", bucket, key, preview)
+    except Exception as e:
+        logger.exception(
+            "[S3] Failed to download object %s/%s; not marking as processed",
+            bucket,
+            key,
+        )
+        # Do NOT mark as processed if download fails
+        return
+
+    # NOTE: CSV parsing intentionally disabled for now.
+    # When ready, you can enable:
+    # try:
+    #     process_csv_bytes(data)
+    # except Exception:
+    #     logger.exception("[CSV] Failed to process CSV for %s/%s", bucket, key)
+    #     return
+
+    # Mark as processed only after successful download (and later CSV parsing)
+    logger.info(
+        "[S3] Marking object processed in s3_processed_files: %s/%s",
+        bucket,
+        key,
+    )
     mark_object_processed(bucket, key)
-    logger.info("Marked object processed: %s/%s", bucket, key)
+    logger.info(
+        "[S3] Marked object processed: %s/%s",
+        bucket,
+        key,
+    )
 
 
 # ---------------------------------------------------------------------------
