@@ -1,10 +1,15 @@
 # app/db.py
+
+import logging
+from contextlib import contextmanager
+
 import psycopg2
 from psycopg2.extras import execute_batch
-from contextlib import contextmanager
+
 from .config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("s3-open-csv-worker")
 
 
 @contextmanager
@@ -62,52 +67,34 @@ def is_object_processed(bucket: str, key: str) -> bool:
 def insert_soft_data_rows(rows: list[dict]):
     """
     Insert a batch of rows into soft_data.
-    Expect keys already mapped to DB column names.
+
+    The keys of the first row define the column list.
+    We:
+      - build a dynamic column list from row.keys()
+      - quote "timestamp" because it's a reserved word
+      - use execute_batch for efficiency
+
+    Rows are expected to already have DB column names as keys
+    (e.g. "timestamp", "deviceid", "latitude", ..., "source").
     """
     if not rows:
         return
 
-    # === IMPORTANT ===
-    # Adjust this to match your real soft_data columns.
-    # Here we assume snake_case names corresponding to CSV header.
-    columns = [
-        "timestamp",
-        "device_id",
-        "latitude",
-        "longitude",
-        "altitude",
-        "gps_accuracy",
-        "speed",
-        "bearing",
-        "pressure",
-        "calculated_altitude",
-        "accel_x",
-        "accel_y",
-        "accel_z",
-        "gyro_x",
-        "gyro_y",
-        "gyro_z",
-        "mag_x",
-        "mag_y",
-        "mag_z",
-        "battery_probe",
-        "battery_level",
-        "battery_voltage",
-        "bms_battery_voltage",
-        "signal_strength",
-        "temperature",
-        "satellites_in_view",
-        "satellites_in_use",
-        "input_voltage",
-        "bms_soc",
-        "charging_status",
-    ]
+    # Column order is taken from the first row
+    columns = list(rows[0].keys())
 
+    # Quote reserved / special column names
+    def escape_col(name: str) -> str:
+        if name == "timestamp":
+            return '"timestamp"'
+        return name
+
+    columns_sql = ", ".join(escape_col(c) for c in columns)
     placeholders = ", ".join(["%s"] * len(columns))
-    col_list = ", ".join(columns)
+
     sql = f"""
     INSERT INTO soft_data (
-        {col_list}
+        {columns_sql}
     ) VALUES ({placeholders})
     """
 
@@ -116,7 +103,18 @@ def insert_soft_data_rows(rows: list[dict]):
         for row in rows
     ]
 
+    logger.info(
+        "[DB] Inserting %d rows into soft_data with columns: %s",
+        len(rows),
+        columns,
+    )
+
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            execute_batch(cur, sql, values, page_size=500)
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                execute_batch(cur, sql, values, page_size=500)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("[DB] Failed to insert batch into soft_data")
+            raise
