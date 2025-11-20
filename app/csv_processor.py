@@ -1,107 +1,47 @@
 # app/csv_processor.py
+
 import csv
 import io
-from datetime import datetime
-from typing import Dict, List, Any
+import logging
 
-from .db import insert_soft_data_rows
-
-# CSV column name -> DB column name
-CSV_TO_DB = {
-    "timestamp": "timestamp",
-    "deviceId": "device_id",
-    "latitude": "latitude",
-    "longitude": "longitude",
-    "altitude": "altitude",
-    "gpsAccuracy": "gps_accuracy",
-    "speed": "speed",
-    "bearing": "bearing",
-    "pressure": "pressure",
-    "calculatedAltitude": "calculated_altitude",
-    "accelX": "accel_x",
-    "accelY": "accel_y",
-    "accelZ": "accel_z",
-    "gyroX": "gyro_x",
-    "gyroY": "gyro_y",
-    "gyroZ": "gyro_z",
-    "magX": "mag_x",
-    "magY": "mag_y",
-    "magZ": "mag_z",
-    "batteryProbe": "battery_probe",
-    "batteryLevel": "battery_level",
-    "batteryVoltage": "battery_voltage",
-    "bmsBatteryVoltage": "bms_battery_voltage",
-    "signalStrength": "signal_strength",
-    "temperature": "temperature",
-    "satellitesInView": "satellites_in_view",
-    "satellitesInUse": "satellites_in_use",
-    "inputVoltage": "input_voltage",
-    "bmsSoc": "bms_soc",
-    "chargingStatus": "charging_status",
-}
+logger = logging.getLogger("s3-open-csv-worker")
 
 
-def _parse_timestamp(value: str):
-    if not value:
-        return None
-    # Your CSV uses ISO 8601 with timezone, e.g. "2025-11-17T18:26:02.542-08:00"
-    # Python 3.11+ supports fromisoformat for this
-    return datetime.fromisoformat(value)
-
-
-def _to_float(value: str):
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _to_int(value: str):
-    if value is None or value == "":
-        return None
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
-
-
-def process_csv_bytes(csv_bytes: bytes):
+def process_csv_bytes(data: bytes) -> None:
     """
-    Parse CSV bytes, map to DB columns, and insert into soft_data.
+    Dry-run CSV processing.
+
+    Current behavior:
+      - Decode bytes as UTF-8 (replace errors).
+      - Parse CSV using DictReader.
+      - Log header (fieldnames).
+      - Count rows and log the total.
+
+    IMPORTANT:
+      - This version does NOT write to PostgreSQL yet.
+      - It is only used to validate CSV structure and ensure
+        that parsing works end-to-end.
     """
-    text_stream = io.StringIO(csv_bytes.decode("utf-8"))
-    reader = csv.DictReader(text_stream)
+    if not data:
+        logger.warning("[CSV] Empty data received, nothing to parse.")
+        return
 
-    batch: List[Dict[str, Any]] = []
+    try:
+        text = data.decode("utf-8", errors="replace")
+    except Exception:
+        logger.exception("[CSV] Failed to decode CSV bytes as UTF-8")
+        raise
 
+    f = io.StringIO(text)
+    reader = csv.DictReader(f)
+
+    fieldnames = reader.fieldnames or []
+    logger.info("[CSV] Fieldnames: %s", fieldnames)
+
+    row_count = 0
     for row in reader:
-        mapped: Dict[str, Any] = {}
+        row_count += 1
+        # We don't log each row to avoid noisy logs.
+        # If needed, we can add debug-level logging later.
 
-        for csv_col, db_col in CSV_TO_DB.items():
-            raw = row.get(csv_col, "")
-
-            if csv_col == "timestamp":
-                mapped[db_col] = _parse_timestamp(raw)
-            elif csv_col in ("deviceId", "chargingStatus"):
-                mapped[db_col] = raw or None
-            elif csv_col in (
-                "satellitesInView",
-                "satellitesInUse",
-            ):
-                mapped[db_col] = _to_int(raw)
-            else:
-                # Assume numeric – float
-                mapped[db_col] = _to_float(raw)
-
-        batch.append(mapped)
-
-        # Insert in chunks to avoid huge transactions
-        if len(batch) >= 1000:
-            insert_soft_data_rows(batch)
-            batch.clear()
-
-    # Insert remaining rows
-    if batch:
-        insert_soft_data_rows(batch)
+    logger.info("[CSV] Parsed %d data rows.", row_count)

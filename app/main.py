@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from .config import get_settings
 from .db import ensure_processed_table, is_object_processed, mark_object_processed
 from .s3_client import download_object_to_bytes
-from .csv_processor import process_csv_bytes  # kept for future use
+from .csv_processor import process_csv_bytes
 
 settings = get_settings()
 app = FastAPI(title="s3-open-csv-worker")
@@ -49,7 +49,7 @@ async def health_s3():
     """
     S3/MinIO health probe.
 
-    For now we implement it in the simplest and most reliable way:
+    We implement it in the simplest and most reliable way:
     - Reuse the existing download_object_to_bytes() helper.
     - Try to download a known small test object from MinIO.
     If we can read non-empty bytes, S3/MinIO is considered "ok".
@@ -92,7 +92,7 @@ def on_startup():
 
 
 # ---------------------------------------------------------------------------
-# Core processing logic (S3 download + idempotency, CSV still disabled)
+# Core processing logic (S3 download + CSV dry-run + idempotency)
 # ---------------------------------------------------------------------------
 
 def handle_object(bucket: str, key: str):
@@ -103,10 +103,11 @@ def handle_object(bucket: str, key: str):
       - Check idempotency (s3_processed_files)
       - Download object bytes from S3/MinIO
       - Log size and first 200 bytes
+      - Dry-run CSV parsing (header + row count only)
       - Mark object as processed
 
-    CSV parsing (process_csv_bytes) is intentionally NOT called yet.
-    This keeps the pipeline simple for now: webhook → S3 download → DB mark.
+    CSV → PostgreSQL insertion is intentionally NOT implemented yet.
+    This keeps the pipeline simple for now: webhook → S3 download → CSV parse → DB mark.
     """
     logger.info("[S3] Handling object: %s/%s", bucket, key)
 
@@ -132,7 +133,7 @@ def handle_object(bucket: str, key: str):
         )
         preview = data[:200] if data else b""
         logger.info("[S3] First 200 bytes for %s/%s: %r", bucket, key, preview)
-    except Exception as e:
+    except Exception:
         logger.exception(
             "[S3] Failed to download object %s/%s; not marking as processed",
             bucket,
@@ -141,15 +142,17 @@ def handle_object(bucket: str, key: str):
         # Do NOT mark as processed if download fails
         return
 
-    # NOTE: CSV parsing intentionally disabled for now.
-    # When ready, you can enable:
-    # try:
-    #     process_csv_bytes(data)
-    # except Exception:
-    #     logger.exception("[CSV] Failed to process CSV for %s/%s", bucket, key)
-    #     return
+    # Dry-run CSV parsing
+    try:
+        logger.info("[CSV] Starting CSV dry-run processing for %s/%s", bucket, key)
+        process_csv_bytes(data)
+        logger.info("[CSV] Finished CSV dry-run processing for %s/%s", bucket, key)
+    except Exception:
+        logger.exception("[CSV] Failed to process CSV for %s/%s", bucket, key)
+        # Do NOT mark as processed if CSV parsing fails
+        return
 
-    # Mark as processed only after successful download (and later CSV parsing)
+    # Mark as processed only after successful download + CSV parse
     logger.info(
         "[S3] Marking object processed in s3_processed_files: %s/%s",
         bucket,
