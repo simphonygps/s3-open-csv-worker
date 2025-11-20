@@ -2,41 +2,51 @@
 
 import csv
 import io
-import logging
 from datetime import datetime
 from typing import Dict, List, Any
 
 from .db import insert_soft_data_rows
 
-logger = logging.getLogger("s3-open-csv-worker")
-
-# CSV column name -> DB column name (match existing soft_data schema)
+# CSV column name -> DB column name (must match soft_data exactly)
 CSV_TO_DB: Dict[str, str] = {
-    "timestamp": "timestamp",
-    "deviceId": "deviceid",  # <-- important: deviceid, not device_id
+    # core
+    "timestamp": "timestamp",          # "timestamp" column (quoted in SQL)
+    "deviceId": "deviceid",           # deviceid (lowercase)
     "latitude": "latitude",
     "longitude": "longitude",
     "altitude": "altitude",
-    "gpsAccuracy": "gpsAccuracy",
+    "pressure": "pressure",
+    "calculatedAltitude": "calculatedaltitude",  # lower-case in DB
+
+    # linear acceleration
+    "accelX": "accelx",
+    "accelY": "accely",
+    "accelZ": "accelz",
+
+    # gyroscope
+    "gyroX": "gyrox",
+    "gyroY": "gyroy",
+    "gyroZ": "gyroz",
+
+    # magnetometer
+    "magX": "magx",
+    "magY": "magy",
+    "magZ": "magz",
+
+    # GPS / motion
+    "gpsAccuracy": "gpsAccuracy",     # camelCase column in DB
     "speed": "speed",
     "bearing": "bearing",
-    "pressure": "pressure",
-    "calculatedAltitude": "calculatedAltitude",
-    "accelX": "accelX",
-    "accelY": "accelY",
-    "accelZ": "accelZ",
-    "gyroX": "gyroX",
-    "gyroY": "gyroY",
-    "gyroZ": "gyroZ",
-    "magX": "magX",
-    "magY": "magY",
-    "magZ": "magZ",
+
+    # power / environment
     "batteryProbe": "batteryProbe",
     "batteryLevel": "batteryLevel",
     "batteryVoltage": "batteryVoltage",
     "bmsBatteryVoltage": "bmsBatteryVoltage",
     "signalStrength": "signalStrength",
     "temperature": "temperature",
+
+    # satellites & power
     "satellitesInView": "satellitesInView",
     "satellitesInUse": "satellitesInUse",
     "inputVoltage": "inputVoltage",
@@ -46,24 +56,14 @@ CSV_TO_DB: Dict[str, str] = {
 
 
 def _parse_timestamp(value: str):
-    """
-    Parse ISO 8601 timestamp with timezone, e.g.:
-      2025-11-17T18:26:02.542-08:00
-    """
     if not value:
         return None
-    try:
-        return datetime.fromisoformat(value)
-    except Exception:
-        logger.exception("[CSV] Failed to parse timestamp: %r", value)
-        return None
+    # CSV uses ISO 8601 with timezone, e.g. "2025-11-17T18:26:02.542-08:00"
+    return datetime.fromisoformat(value)
 
 
 def _to_float(value: str):
-    if value is None:
-        return None
-    value = value.strip()
-    if value == "":
+    if value is None or value == "":
         return None
     try:
         return float(value)
@@ -72,78 +72,56 @@ def _to_float(value: str):
 
 
 def _to_int(value: str):
-    if value is None:
-        return None
-    value = value.strip()
-    if value == "":
+    if value is None or value == "":
         return None
     try:
-        # Some CSVs may contain "12.0" – handle that gracefully
         return int(float(value))
     except ValueError:
         return None
 
 
-def process_csv_bytes(csv_bytes: bytes) -> None:
+def process_csv_bytes(csv_bytes: bytes):
     """
     Parse CSV bytes, map to DB columns, and insert into soft_data.
 
-    Behavior:
-      - Decode bytes as UTF-8.
-      - Use DictReader to parse header + rows.
-      - Map CSV columns using CSV_TO_DB.
-      - Convert types (timestamp, ints, floats, text).
-      - Set source='s3-open' for all rows from this worker.
-      - Insert in batches via insert_soft_data_rows().
+    - Uses CSV_TO_DB to map CSV header -> soft_data column
+    - Adds source='s3-open' for all inserted rows
     """
-    if not csv_bytes:
-        logger.warning("[CSV] Empty CSV payload, nothing to process.")
-        return
-
-    try:
-        text_stream = io.StringIO(csv_bytes.decode("utf-8", errors="replace"))
-    except Exception:
-        logger.exception("[CSV] Failed to decode CSV bytes as UTF-8.")
-        raise
-
+    text_stream = io.StringIO(csv_bytes.decode("utf-8"))
     reader = csv.DictReader(text_stream)
 
-    fieldnames = reader.fieldnames or []
-    logger.info("[CSV] Fieldnames: %s", fieldnames)
-
     batch: List[Dict[str, Any]] = []
-    total_rows = 0
-    BATCH_SIZE = 1000
 
     for row in reader:
-        total_rows += 1
         mapped: Dict[str, Any] = {}
 
         for csv_col, db_col in CSV_TO_DB.items():
-            raw = row.get(csv_col)
+            raw = row.get(csv_col, "")
 
             if csv_col == "timestamp":
                 mapped[db_col] = _parse_timestamp(raw)
-            elif csv_col in ("deviceId", "chargingStatus"):
-                mapped[db_col] = (raw or "").strip() or None
-            elif csv_col in ("satellitesInView", "satellitesInUse"):
+
+            elif csv_col == "deviceId":
+                # deviceid is text in DB
+                mapped[db_col] = raw or None
+
+            elif csv_col in ("satellitesInView", "satellitesInUse", "bmsSoc", "chargingStatus"):
                 mapped[db_col] = _to_int(raw)
+
             else:
-                # Assume numeric – float
+                # everything else we treat as numeric float
                 mapped[db_col] = _to_float(raw)
 
-        # Set source for rows coming from S3-Open worker
+        # override / set source column
         mapped["source"] = "s3-open"
 
         batch.append(mapped)
 
-        if len(batch) >= BATCH_SIZE:
-            logger.info("[CSV] Inserting batch of %d rows into soft_data...", len(batch))
+        # Insert in chunks to avoid huge transactions
+        if len(batch) >= 1000:
             insert_soft_data_rows(batch)
             batch.clear()
 
+    # Insert remaining rows
     if batch:
-        logger.info("[CSV] Inserting final batch of %d rows into soft_data...", len(batch))
         insert_soft_data_rows(batch)
-
-    logger.info("[CSV] Finished processing CSV: %d data rows inserted (source='s3-open').", total_rows)
