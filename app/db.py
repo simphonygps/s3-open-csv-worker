@@ -71,11 +71,11 @@ def insert_soft_data_rows(rows: list[dict]):
     The keys of the first row define the column list.
     We:
       - build a dynamic column list from row.keys()
-      - quote "timestamp" because it's a reserved word
+      - quote ALL column names, to preserve camelCase
       - use execute_batch for efficiency
 
     Rows are expected to already have DB column names as keys
-    (e.g. "timestamp", "deviceid", "latitude", ..., "source").
+    (e.g. "timestamp", "deviceid", "gpsAccuracy", ..., "source").
     """
     if not rows:
         return
@@ -83,11 +83,9 @@ def insert_soft_data_rows(rows: list[dict]):
     # Column order is taken from the first row
     columns = list(rows[0].keys())
 
-    # Quote reserved / special column names
+    # Always quote column names to preserve exact case (camelCase, etc.)
     def escape_col(name: str) -> str:
-        if name == "timestamp":
-            return '"timestamp"'
-        return name
+        return f'"{name}"'
 
     columns_sql = ", ".join(escape_col(c) for c in columns)
     placeholders = ", ".join(["%s"] * len(columns))
