@@ -15,6 +15,7 @@ from .db import (
 )
 from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
+from .retention_worker import get_retention_preview
 
 settings = get_settings()
 app = FastAPI(title="s3-open-csv-worker")
@@ -250,3 +251,20 @@ async def minio_webhook(request: Request, background_tasks: BackgroundTasks):
 
     logger.warning("Unknown webhook format, ignoring.")
     return JSONResponse({"status": "ignored"}, status_code=400)
+
+
+# ---------------------------------------------------------------------------
+# Retention preview endpoint (read-only)
+# ---------------------------------------------------------------------------
+
+@app.get("/retention/preview")
+def retention_preview():
+    """
+    Return a read-only JSON preview of retention candidates.
+
+    NOTE:
+    - This endpoint NEVER performs deletes, even if RETENTION_DELETE_ENABLED=true.
+    - Delete mode is only used when running `python -m app.retention_worker` from CLI.
+    """
+    preview = get_retention_preview()
+    return preview
