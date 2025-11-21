@@ -10,8 +10,8 @@ from .db import insert_soft_data_rows
 # CSV column name -> DB column name (must match soft_data exactly)
 CSV_TO_DB: Dict[str, str] = {
     # core
-    "timestamp": "timestamp",          # "timestamp" column (quoted in SQL)
-    "deviceId": "deviceid",           # deviceid (lowercase)
+    "timestamp": "timestamp",           # "timestamp" column (quoted in SQL)
+    "deviceId": "deviceid",            # deviceid (lowercase)
     "latitude": "latitude",
     "longitude": "longitude",
     "altitude": "altitude",
@@ -34,7 +34,7 @@ CSV_TO_DB: Dict[str, str] = {
     "magZ": "magz",
 
     # GPS / motion
-    "gpsAccuracy": "gpsAccuracy",     # camelCase column in DB
+    "gpsAccuracy": "gpsAccuracy",      # camelCase column in DB
     "speed": "speed",
     "bearing": "bearing",
 
@@ -80,19 +80,31 @@ def _to_int(value: str):
         return None
 
 
-def process_csv_bytes(csv_bytes: bytes):
+def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
     """
     Parse CSV bytes, map to DB columns, and insert into soft_data.
 
     - Uses CSV_TO_DB to map CSV header -> soft_data column
     - Adds source='s3-open' for all inserted rows
+    - Returns a summary dict:
+        {
+          "rows_total": <int>,
+          "rows_inserted": <int>,
+          "rows_failed": <int>
+        }
     """
     text_stream = io.StringIO(csv_bytes.decode("utf-8"))
     reader = csv.DictReader(text_stream)
 
     batch: List[Dict[str, Any]] = []
 
+    rows_total = 0
+    rows_inserted = 0
+    rows_failed = 0  # reserved for future validation logic
+
     for row in reader:
+        rows_total += 1
+
         mapped: Dict[str, Any] = {}
 
         for csv_col, db_col in CSV_TO_DB.items():
@@ -116,6 +128,7 @@ def process_csv_bytes(csv_bytes: bytes):
         mapped["source"] = "s3-open"
 
         batch.append(mapped)
+        rows_inserted += 1  # currently we treat each mapped row as inserted on success
 
         # Insert in chunks to avoid huge transactions
         if len(batch) >= 1000:
@@ -125,3 +138,9 @@ def process_csv_bytes(csv_bytes: bytes):
     # Insert remaining rows
     if batch:
         insert_soft_data_rows(batch)
+
+    return {
+        "rows_total": rows_total,
+        "rows_inserted": rows_inserted,
+        "rows_failed": rows_failed,
+    }

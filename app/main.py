@@ -6,7 +6,13 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
-from .db import ensure_processed_table, is_object_processed, mark_object_processed
+from .db import (
+    ensure_processed_table,
+    is_object_processed,
+    mark_object_processing_started,
+    mark_object_processed_success,
+    mark_object_processed_error,
+)
 from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
 
@@ -31,7 +37,7 @@ async def health():
 async def health_db():
     """
     Readiness probe: verifies DB connectivity by reusing the same logic
-    that ensures the idempotency table on startup.
+    that ensures the idempotency / lifecycle table on startup.
     """
     try:
         ensure_processed_table()
@@ -88,37 +94,40 @@ async def health_s3():
 def on_startup():
     logger.info("Starting s3-open-csv-worker...")
     ensure_processed_table()
-    logger.info("Idempotency table ensured.")
+    logger.info("Lifecycle / idempotency table ensured.")
 
 
 # ---------------------------------------------------------------------------
-# Core processing logic (S3 download + CSV dry-run + idempotency)
+# Core processing logic (S3 download + CSV → DB + lifecycle tracking)
 # ---------------------------------------------------------------------------
 
 def handle_object(bucket: str, key: str):
     """
     Handle an S3/MinIO object notification.
 
-    Current behavior:
-      - Check idempotency (s3_processed_files)
+    Behavior:
+      - Check idempotency (s3_processed_files with status='success')
+      - Mark processing started in s3_processed_files (status='processing')
       - Download object bytes from S3/MinIO
-      - Log size and first 200 bytes
-      - Dry-run CSV parsing (header + row count only)
-      - Mark object as processed
-
-    CSV → PostgreSQL insertion is intentionally NOT implemented yet.
-    This keeps the pipeline simple for now: webhook → S3 download → CSV parse → DB mark.
+      - CSV parse + insert into soft_data
+      - On success:
+          * Mark status='success' with counters (rows_total, rows_inserted, rows_failed)
+      - On failure:
+          * Mark status='error' with error_code/error_message
     """
     logger.info("[S3] Handling object: %s/%s", bucket, key)
 
-    # Idempotency check
+    # Idempotency check (only 'success' means we skip)
     if is_object_processed(bucket, key):
         logger.info(
-            "[S3] Already processed (found in s3_processed_files), skipping: %s/%s",
+            "[S3] Already processed successfully (status='success'), skipping: %s/%s",
             bucket,
             key,
         )
         return
+
+    # Mark processing started
+    mark_object_processing_started(bucket, key)
 
     # Download from S3/MinIO
     try:
@@ -133,34 +142,65 @@ def handle_object(bucket: str, key: str):
         )
         preview = data[:200] if data else b""
         logger.info("[S3] First 200 bytes for %s/%s: %r", bucket, key, preview)
-    except Exception:
+    except Exception as e:
         logger.exception(
-            "[S3] Failed to download object %s/%s; not marking as processed",
+            "[S3] Failed to download object %s/%s",
             bucket,
             key,
         )
-        # Do NOT mark as processed if download fails
+        # Mark as error in lifecycle table
+        mark_object_processed_error(
+            bucket=bucket,
+            key=key,
+            error_code="DOWNLOAD_ERROR",
+            error_message=str(e),
+        )
         return
 
-    # Dry-run CSV parsing
+    # CSV parsing + DB insertion
     try:
-        logger.info("[CSV] Starting CSV dry-run processing for %s/%s", bucket, key)
-        process_csv_bytes(data)
-        logger.info("[CSV] Finished CSV dry-run processing for %s/%s", bucket, key)
-    except Exception:
+        logger.info("[CSV] Starting CSV processing for %s/%s", bucket, key)
+        summary = process_csv_bytes(data)
+        logger.info(
+            "[CSV] Finished CSV processing for %s/%s: %s",
+            bucket,
+            key,
+            summary,
+        )
+    except Exception as e:
         logger.exception("[CSV] Failed to process CSV for %s/%s", bucket, key)
-        # Do NOT mark as processed if CSV parsing fails
+        # Mark as error in lifecycle table (no reliable counters here)
+        mark_object_processed_error(
+            bucket=bucket,
+            key=key,
+            error_code="CSV_PROCESS_ERROR",
+            error_message=str(e),
+        )
         return
 
-    # Mark as processed only after successful download + CSV parse
+    # Mark as processed (success) only after successful download + CSV → DB
+    rows_total = summary.get("rows_total", 0)
+    rows_inserted = summary.get("rows_inserted", 0)
+    rows_failed = summary.get("rows_failed", 0)
+
     logger.info(
-        "[S3] Marking object processed in s3_processed_files: %s/%s",
+        "[S3] Marking object processed in s3_processed_files: %s/%s "
+        "(total=%d, inserted=%d, failed=%d)",
         bucket,
         key,
+        rows_total,
+        rows_inserted,
+        rows_failed,
     )
-    mark_object_processed(bucket, key)
+    mark_object_processed_success(
+        bucket=bucket,
+        key=key,
+        rows_total=rows_total,
+        rows_inserted=rows_inserted,
+        rows_failed=rows_failed,
+    )
     logger.info(
-        "[S3] Marked object processed: %s/%s",
+        "[S3] Marked object processed successfully: %s/%s",
         bucket,
         key,
     )
