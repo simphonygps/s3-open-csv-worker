@@ -3,6 +3,7 @@
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any
 
 from .config import get_settings
 from .db import get_connection, ensure_processed_table
@@ -20,7 +21,7 @@ def _get_retention_days() -> int:
     raw = os.getenv("RETENTION_DAYS", "30")
     try:
         days = int(raw)
-        if days <= 0:
+        if days < 0:
             raise ValueError
         return days
     except ValueError:
@@ -48,7 +49,19 @@ def _get_retention_limit() -> int:
         return 1000
 
 
-def fetch_db_candidates(threshold_ts: datetime, limit: int):
+def _is_delete_enabled() -> bool:
+    """
+    Check RETENTION_DELETE_ENABLED env var.
+
+    Accepted "true" values (case-insensitive): true, 1, yes, on
+    Anything else = False.
+    """
+    raw = os.getenv("RETENTION_DELETE_ENABLED", "false")
+    val = (raw or "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def fetch_db_candidates(threshold_ts: datetime, limit: int) -> List[Dict[str, Any]]:
     """
     Fetch candidate files from s3_processed_files that are older than the threshold.
 
@@ -72,7 +85,7 @@ def fetch_db_candidates(threshold_ts: datetime, limit: int):
         LIMIT %s;
     """
 
-    rows = []
+    rows: List[Dict[str, Any]] = []
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -109,43 +122,93 @@ def check_s3_exists(bucket: str, key: str) -> bool:
         return False
 
 
+def _update_status(
+    bucket: str,
+    key: str,
+    status: str,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    """
+    Update lifecycle status and error fields in s3_processed_files for a given object.
+    """
+    sql = f"""
+        UPDATE {settings.processed_table}
+        SET status = %s,
+            error_code = %s,
+            error_message = %s
+        WHERE bucket = %s AND object_key = %s;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (status, error_code, error_message, bucket, key))
+        conn.commit()
+
+    logger.info(
+        "[RETENTION][DB] Updated lifecycle: %s/%s -> status=%s, error_code=%r",
+        bucket,
+        key,
+        status,
+        error_code,
+    )
+
+
 def run_retention_check():
     """
-    Run a single retention scan in read-only mode.
+    Run a single retention scan.
 
-    Steps:
+    Always:
       - compute threshold date
       - fetch candidates from DB
       - for each candidate, check if S3 object exists
-      - print a summary (no deletions)
+      - print a summary
+
+    If RETENTION_DELETE_ENABLED=false (default):
+      - READ-ONLY: does not modify DB or S3.
+
+    If RETENTION_DELETE_ENABLED=true:
+      - For each candidate:
+          * If S3 exists:
+              - delete the object
+              - set status='deleted' in s3_processed_files
+          * If S3 missing:
+              - set status='missing' with error_code='NotFound'
+          * On delete error:
+              - set status='delete_error' with error information
     """
     retention_days = _get_retention_days()
     limit = _get_retention_limit()
+    delete_enabled = _is_delete_enabled()
 
     now_utc = datetime.now(timezone.utc)
     threshold_ts = now_utc - timedelta(days=retention_days)
 
     logger.info(
-        "[RETENTION] Starting retention scan: days=%d, limit=%d, threshold=%s",
+        "[RETENTION] Starting retention scan: days=%d, limit=%d, threshold=%s, delete_enabled=%s",
         retention_days,
         limit,
         threshold_ts.isoformat(),
+        delete_enabled,
     )
 
     candidates = fetch_db_candidates(threshold_ts, limit)
 
-    logger.info("[RETENTION] Found %d DB candidates older than threshold", len(candidates))
-
     if not candidates:
         print("No candidates found for retention (read-only).")
+        logger.info("[RETENTION] No DB candidates older than threshold")
         return
+
+    print("Retention candidates (read-only):")
+    print("------------------------------------------------------------")
 
     total = 0
     exist_count = 0
     missing_count = 0
 
-    print("Retention candidates (read-only):")
-    print("------------------------------------------------------------")
+    deleted_count = 0
+    mark_missing_count = 0
+    delete_error_count = 0
 
     for row in candidates:
         total += 1
@@ -165,18 +228,64 @@ def run_retention_check():
             f"processed_finished_at={finished_at} | s3_exists={exists}"
         )
 
+        # DELETE MODE (optional)
+        if delete_enabled:
+            if exists:
+                try:
+                    s3.delete_object(Bucket=bucket, Key=key)
+                    _update_status(bucket, key, status="deleted")
+                    deleted_count += 1
+                    print("  -> deleted from S3 and marked status='deleted' in DB")
+                except Exception as e:
+                    err_code = type(e).__name__
+                    err_msg = str(e)
+                    _update_status(
+                        bucket,
+                        key,
+                        status="delete_error",
+                        error_code=err_code,
+                        error_message=err_msg,
+                    )
+                    delete_error_count += 1
+                    logger.exception(
+                        "[RETENTION] Failed to delete %s/%s from S3", bucket, key
+                    )
+                    print(
+                        "  -> delete_error, see logs; status='delete_error' in DB "
+                        f"(error_code={err_code})"
+                    )
+            else:
+                # S3 object already missing: reflect that in DB
+                _update_status(
+                    bucket,
+                    key,
+                    status="missing",
+                    error_code="NotFound",
+                    error_message="Object missing in S3 during retention delete",
+                )
+                mark_missing_count += 1
+                print("  -> S3 missing; marked status='missing' in DB")
+
     print("------------------------------------------------------------")
     print(
-        f"Retention summary (read-only): total={total}, "
+        f"Retention summary (read-only part): total={total}, "
         f"s3_exists={exist_count}, s3_missing_or_error={missing_count}"
     )
 
-    logger.info(
-        "[RETENTION] Scan finished: total=%d, s3_exists=%d, s3_missing_or_error=%d",
-        total,
-        exist_count,
-        missing_count,
-    )
+    if delete_enabled:
+        print(
+            f"Retention delete summary: deleted={deleted_count}, "
+            f"marked_missing={mark_missing_count}, delete_error={delete_error_count}"
+        )
+        logger.info(
+            "[RETENTION] Delete summary: deleted=%d, marked_missing=%d, delete_error=%d",
+            deleted_count,
+            mark_missing_count,
+            delete_error_count,
+        )
+    else:
+        print("Delete mode is DISABLED (RETENTION_DELETE_ENABLED=false). No changes applied.")
+        logger.info("[RETENTION] Delete mode disabled. No changes applied to S3/DB.")
 
 
 if __name__ == "__main__":
