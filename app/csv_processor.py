@@ -2,10 +2,13 @@
 
 import csv
 import io
+import logging
 from datetime import datetime
 from typing import Dict, List, Any
 
 from .db import insert_soft_data_rows
+
+logger = logging.getLogger("s3-open-csv-worker")
 
 # CSV column name -> DB column name (must match soft_data exactly)
 CSV_TO_DB: Dict[str, str] = {
@@ -59,7 +62,10 @@ def _parse_timestamp(value: str):
     if not value:
         return None
     # CSV uses ISO 8601 with timezone, e.g. "2025-11-17T18:26:02.542-08:00"
-    return datetime.fromisoformat(value)
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _to_float(value: str):
@@ -82,15 +88,20 @@ def _to_int(value: str):
 
 def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
     """
-    Parse CSV bytes, map to DB columns, and insert into soft_data.
+    Parse CSV bytes, validate, map to DB columns, and insert into soft_data.
 
-    - Uses CSV_TO_DB to map CSV header -> soft_data column
-    - Adds source='s3-open' for all inserted rows
-    - Returns a summary dict:
+    Validation (basic):
+      - Required fields: timestamp, deviceId, latitude, longitude
+      - Row is skipped (not inserted) if:
+          * timestamp is missing or cannot be parsed, OR
+          * deviceId is empty, OR
+          * latitude/longitude cannot be parsed as floats
+
+    Returns a summary dict:
         {
-          "rows_total": <int>,
-          "rows_inserted": <int>,
-          "rows_failed": <int>
+          "rows_total": <int>,     # rows seen in CSV (excluding header)
+          "rows_inserted": <int>,  # rows successfully inserted into soft_data
+          "rows_failed": <int>     # rows skipped due to validation errors
         }
     """
     text_stream = io.StringIO(csv_bytes.decode("utf-8"))
@@ -100,22 +111,62 @@ def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
 
     rows_total = 0
     rows_inserted = 0
-    rows_failed = 0  # reserved for future validation logic
+    rows_failed = 0
 
     for row in reader:
         rows_total += 1
 
+        # -----------------------------
+        # Basic validation
+        # -----------------------------
+        errors: List[str] = []
+
+        raw_ts = (row.get("timestamp") or "").strip()
+        ts = _parse_timestamp(raw_ts)
+        if not raw_ts or ts is None:
+            errors.append("invalid timestamp")
+
+        raw_device_id = (row.get("deviceId") or "").strip()
+        if not raw_device_id:
+            errors.append("missing deviceId")
+
+        raw_lat = (row.get("latitude") or "").strip()
+        raw_lon = (row.get("longitude") or "").strip()
+        lat = _to_float(raw_lat)
+        lon = _to_float(raw_lon)
+        if lat is None or lon is None:
+            errors.append("invalid latitude/longitude")
+
+        if errors:
+            rows_failed += 1
+            # We log as WARNING so operator can see if something is wrong with CSV
+            logger.warning(
+                "[CSV] Skipping row %d due to validation errors: %s",
+                rows_total,
+                "; ".join(errors),
+            )
+            continue
+
+        # -----------------------------
+        # Mapping to DB columns
+        # -----------------------------
         mapped: Dict[str, Any] = {}
 
         for csv_col, db_col in CSV_TO_DB.items():
             raw = row.get(csv_col, "")
 
             if csv_col == "timestamp":
-                mapped[db_col] = _parse_timestamp(raw)
+                # already parsed as ts
+                mapped[db_col] = ts
 
             elif csv_col == "deviceId":
-                # deviceid is text in DB
-                mapped[db_col] = raw or None
+                mapped[db_col] = raw_device_id
+
+            elif csv_col == "latitude":
+                mapped[db_col] = lat
+
+            elif csv_col == "longitude":
+                mapped[db_col] = lon
 
             elif csv_col in ("satellitesInView", "satellitesInUse", "bmsSoc", "chargingStatus"):
                 mapped[db_col] = _to_int(raw)
@@ -128,7 +179,7 @@ def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
         mapped["source"] = "s3-open"
 
         batch.append(mapped)
-        rows_inserted += 1  # currently we treat each mapped row as inserted on success
+        rows_inserted += 1
 
         # Insert in chunks to avoid huge transactions
         if len(batch) >= 1000:
@@ -138,6 +189,13 @@ def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
     # Insert remaining rows
     if batch:
         insert_soft_data_rows(batch)
+
+    logger.info(
+        "[CSV] Summary: total=%d, inserted=%d, failed=%d",
+        rows_total,
+        rows_inserted,
+        rows_failed,
+    )
 
     return {
         "rows_total": rows_total,
