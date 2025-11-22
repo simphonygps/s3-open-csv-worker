@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -59,6 +60,17 @@ def _is_delete_enabled() -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+def _is_notify_enabled() -> bool:
+    """
+    Check RETENTION_NOTIFY_ENABLED env var.
+
+    Default is true unless explicitly set to a "false" value.
+    """
+    raw = os.getenv("RETENTION_NOTIFY_ENABLED", "true")
+    val = (raw or "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
 def fetch_db_candidates(threshold_ts: datetime, limit: int) -> List[Dict[str, Any]]:
     """
     Fetch candidate files from s3_processed_files that are older than the threshold.
@@ -74,7 +86,8 @@ def fetch_db_candidates(threshold_ts: datetime, limit: int) -> List[Dict[str, An
             bucket,
             object_key,
             rows_total,
-            processed_finished_at
+            processed_finished_at,
+            size_bytes
         FROM {settings.processed_table}
         WHERE status = 'success'
           AND processed_finished_at IS NOT NULL
@@ -88,13 +101,20 @@ def fetch_db_candidates(threshold_ts: datetime, limit: int) -> List[Dict[str, An
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (threshold_ts, limit))
-            for bucket, object_key, rows_total, processed_finished_at in cur.fetchall():
+            for (
+                bucket,
+                object_key,
+                rows_total,
+                processed_finished_at,
+                size_bytes,
+            ) in cur.fetchall():
                 rows.append(
                     {
                         "bucket": bucket,
                         "object_key": object_key,
                         "rows_total": rows_total,
                         "processed_finished_at": processed_finished_at,
+                        "size_bytes": size_bytes,
                     }
                 )
 
@@ -212,7 +232,6 @@ def _notify_retention(summary: Dict[str, Any]) -> None:
         f"[NOTIFY] Retention removed {files_deleted} files "
         f"(total_size_mb={total_size_mb})"
     )
-    # Print to stdout and log to logger for operators
     print(msg)
     logger.info(msg)
 
@@ -241,6 +260,7 @@ def get_retention_preview() -> Dict[str, Any]:
           "object_key": str,
           "rows_total": int | None,
           "processed_finished_at": datetime,
+          "size_bytes": int | None,
           "s3_exists": bool
         },
         ...
@@ -275,6 +295,7 @@ def get_retention_preview() -> Dict[str, Any]:
         key = row["object_key"]
         rows_total = row["rows_total"]
         finished_at = row["processed_finished_at"]
+        size_bytes = row.get("size_bytes")
 
         exists = check_s3_exists(bucket, key)
         if exists:
@@ -288,6 +309,7 @@ def get_retention_preview() -> Dict[str, Any]:
                 "object_key": key,
                 "rows_total": rows_total,
                 "processed_finished_at": finished_at,
+                "size_bytes": size_bytes,
                 "s3_exists": exists,
             }
         )
@@ -371,6 +393,36 @@ def get_retention_history(limit: int = 50) -> Dict[str, Any]:
     }
 
 
+def get_retention_dry_run_report() -> Dict[str, Any]:
+    """
+    Build a dry-run delete report, based on the existing preview:
+
+    {
+      "preview": { ...existing preview format... },
+      "delete_estimate": {
+        "avg_delete_seconds_per_object": float,
+        "estimated_total_seconds": float
+      }
+    }
+
+    NOTE: This function never performs deletes. It is safe to call in any env.
+    """
+    preview = get_retention_preview()
+    total_candidates = preview["summary"]["total_candidates"]
+
+    # A very conservative estimated per-object delete time.
+    avg_delete_sec = 0.2
+    estimated_total_seconds = round(total_candidates * avg_delete_sec, 2)
+
+    return {
+        "preview": preview,
+        "delete_estimate": {
+            "avg_delete_seconds_per_object": avg_delete_sec,
+            "estimated_total_seconds": estimated_total_seconds,
+        },
+    }
+
+
 def run_retention_check():
     """
     Run a single retention scan from CLI.
@@ -407,6 +459,7 @@ def run_retention_check():
             f"- {c['bucket']}/{c['object_key']} | "
             f"rows_total={c['rows_total']} | "
             f"processed_finished_at={c['processed_finished_at']} | "
+            f"size_bytes={c.get('size_bytes')} | "
             f"s3_exists={c['s3_exists']}"
         )
     print("------------------------------------------------------------")
@@ -424,7 +477,7 @@ def run_retention_check():
     deleted_count = 0
     mark_missing_count = 0
     delete_error_count = 0
-    total_size_bytes = 0  # placeholder, 0 for now (no size tracking yet)
+    total_size_bytes = 0
 
     deleted_reason = "retention_policy"
     deletion_mode = "auto-retention"
@@ -433,6 +486,7 @@ def run_retention_check():
         bucket = c["bucket"]
         key = c["object_key"]
         exists = c["s3_exists"]
+        size_bytes = c.get("size_bytes") or 0
 
         if exists:
             try:
@@ -444,6 +498,7 @@ def run_retention_check():
                     deletion_mode=deletion_mode,
                 )
                 deleted_count += 1
+                total_size_bytes += size_bytes
                 print("  -> deleted from S3 and marked status='deleted' in DB")
             except Exception as e:
                 err_code = type(e).__name__
@@ -486,14 +541,79 @@ def run_retention_check():
         delete_error_count,
     )
 
-    # Mock notification (console + log)
-    _notify_retention(
-        {
-            "files_deleted": deleted_count,
-            "total_size_bytes": total_size_bytes,
-        }
+    # Mock notification (console + log), unless disabled by env
+    if _is_notify_enabled():
+        _notify_retention(
+            {
+                "files_deleted": deleted_count,
+                "total_size_bytes": total_size_bytes,
+            }
+        )
+
+
+def main():
+    """
+    CLI entrypoint for: python -m app.retention_worker
+
+    Options:
+      --preview      Force preview-only (no deletes), regardless of env
+      --delete       Force delete mode (overrides env, unless --preview)
+      --limit N      Override RETENTION_LIMIT for this run
+      --no-notify    Disable notification output for this run
+    """
+    parser = argparse.ArgumentParser(description="Retention worker for s3-open-csv-worker")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Force preview-only (no deletes), regardless of RETENTION_DELETE_ENABLED",
     )
+    parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Force delete mode (set RETENTION_DELETE_ENABLED=true for this run)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Override RETENTION_LIMIT for this run",
+    )
+    parser.add_argument(
+        "--no-notify",
+        action="store_true",
+        help="Disable notification output for this run",
+    )
+
+    args = parser.parse_args()
+
+    # Save original env values to restore after the run
+    original_env = {
+        "RETENTION_DELETE_ENABLED": os.getenv("RETENTION_DELETE_ENABLED"),
+        "RETENTION_LIMIT": os.getenv("RETENTION_LIMIT"),
+        "RETENTION_NOTIFY_ENABLED": os.getenv("RETENTION_NOTIFY_ENABLED"),
+    }
+
+    try:
+        # Preview wins over delete
+        if args.preview:
+            os.environ["RETENTION_DELETE_ENABLED"] = "false"
+        elif args.delete:
+            os.environ["RETENTION_DELETE_ENABLED"] = "true"
+
+        if args.limit is not None:
+            os.environ["RETENTION_LIMIT"] = str(args.limit)
+
+        if args.no_notify:
+            os.environ["RETENTION_NOTIFY_ENABLED"] = "false"
+
+        run_retention_check()
+    finally:
+        # Restore env
+        for key, val in original_env.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
 
 
 if __name__ == "__main__":
-    run_retention_check()
+    main()

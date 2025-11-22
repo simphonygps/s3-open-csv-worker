@@ -13,7 +13,11 @@ from .db import (
 )
 from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
-from .retention_worker import get_retention_preview, get_retention_history
+from .retention_worker import (
+    get_retention_preview,
+    get_retention_history,
+    get_retention_dry_run_report,
+)
 
 settings = get_settings()
 app = FastAPI(title="s3-open-csv-worker")
@@ -111,6 +115,7 @@ def handle_object(bucket: str, key: str):
       - CSV parse + insert into soft_data
       - On success:
           * Mark status='success' with counters (rows_total, rows_inserted, rows_failed)
+          * Store size_bytes in s3_processed_files
       - On failure:
           * Mark status='error' with error_code/error_message
     """
@@ -132,10 +137,10 @@ def handle_object(bucket: str, key: str):
     try:
         logger.info("[S3] Downloading object bytes from MinIO/S3: %s/%s", bucket, key)
         data = download_object_to_bytes(bucket, key)
-        size = len(data) if data is not None else 0
+        size_bytes = len(data) if data is not None else 0
         logger.info(
             "[S3] Downloaded %d bytes for object %s/%s",
-            size,
+            size_bytes,
             bucket,
             key,
         )
@@ -184,12 +189,13 @@ def handle_object(bucket: str, key: str):
 
     logger.info(
         "[S3] Marking object processed in s3_processed_files: %s/%s "
-        "(total=%d, inserted=%d, failed=%d)",
+        "(total=%d, inserted=%d, failed=%d, size_bytes=%d)",
         bucket,
         key,
         rows_total,
         rows_inserted,
         rows_failed,
+        size_bytes,
     )
     mark_object_processed_success(
         bucket=bucket,
@@ -197,6 +203,7 @@ def handle_object(bucket: str, key: str):
         rows_total=rows_total,
         rows_inserted=rows_inserted,
         rows_failed=rows_failed,
+        size_bytes=size_bytes,
     )
     logger.info(
         "[S3] Marked object processed successfully: %s/%s",
@@ -252,7 +259,7 @@ async def minio_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 # ---------------------------------------------------------------------------
-# Retention endpoints (read-only + history)
+# Retention endpoints (preview, history, dry-delete)
 # ---------------------------------------------------------------------------
 
 @app.get("/retention/preview")
@@ -276,3 +283,16 @@ def retention_history(limit: int = 50):
     """
     history = get_retention_history(limit=limit)
     return history
+
+
+@app.get("/retention/dry-delete")
+def retention_dry_delete():
+    """
+    Return a dry-run delete report: preview + estimated delete time.
+
+    IMPORTANT:
+    - This endpoint NEVER performs deletes regardless of RETENTION_DELETE_ENABLED.
+    - It is safe to call in any environment.
+    """
+    report = get_retention_dry_run_report()
+    return report

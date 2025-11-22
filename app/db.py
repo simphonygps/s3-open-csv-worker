@@ -56,7 +56,11 @@ def ensure_processed_table():
         ADD COLUMN IF NOT EXISTS error_code            TEXT,
         ADD COLUMN IF NOT EXISTS error_message         TEXT,
         ADD COLUMN IF NOT EXISTS processed_started_at  TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS processed_finished_at TIMESTAMPTZ;
+        ADD COLUMN IF NOT EXISTS processed_finished_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS size_bytes            BIGINT,
+        ADD COLUMN IF NOT EXISTS deleted_at            TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS deleted_reason        TEXT,
+        ADD COLUMN IF NOT EXISTS deletion_mode         TEXT;
     """
 
     with get_connection() as conn:
@@ -64,7 +68,10 @@ def ensure_processed_table():
             cur.execute(ddl_create)
             cur.execute(ddl_alter)
         conn.commit()
-        logger.info("[DB] ensured processed_table '%s' exists with lifecycle columns", table)
+        logger.info(
+            "[DB] ensured processed_table '%s' exists with lifecycle columns",
+            table,
+        )
 
 
 def is_object_processed(bucket: str, key: str) -> bool:
@@ -98,8 +105,14 @@ def mark_object_processing_started(bucket: str, key: str):
                                             processed_started_at,
                                             processed_finished_at,
                                             rows_total, rows_inserted, rows_failed,
-                                            error_code, error_message)
-    VALUES (%s, %s, 'processing', NOW(), NULL, NULL, NULL, NULL, NULL, NULL)
+                                            error_code, error_message,
+                                            size_bytes,
+                                            deleted_at, deleted_reason, deletion_mode)
+    VALUES (%s, %s, 'processing', NOW(), NULL,
+            NULL, NULL, NULL,
+            NULL, NULL,
+            NULL,
+            NULL, NULL, NULL)
     ON CONFLICT (bucket, object_key) DO UPDATE
     SET status = 'processing',
         processed_started_at = NOW(),
@@ -109,6 +122,10 @@ def mark_object_processing_started(bucket: str, key: str):
         rows_failed = NULL,
         error_code = NULL,
         error_message = NULL,
+        size_bytes = NULL,
+        deleted_at = NULL,
+        deleted_reason = NULL,
+        deletion_mode = NULL,
         processed_at = NOW();
     """
     with get_connection() as conn:
@@ -124,9 +141,12 @@ def mark_object_processed_success(
     rows_total: int,
     rows_inserted: int,
     rows_failed: int,
+    size_bytes: int | None = None,
 ):
     """
     Mark that processing completed successfully for the given object.
+
+    Also stores size_bytes (may be None for legacy paths).
     """
     sql_update = f"""
     UPDATE {settings.processed_table}
@@ -137,39 +157,59 @@ def mark_object_processed_success(
         error_code = NULL,
         error_message = NULL,
         processed_finished_at = NOW(),
-        processed_at = NOW()
+        processed_at = NOW(),
+        size_bytes = %s
     WHERE bucket = %s AND object_key = %s;
     """
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql_update, (rows_total, rows_inserted, rows_failed, bucket, key))
+            cur.execute(
+                sql_update,
+                (rows_total, rows_inserted, rows_failed, size_bytes, bucket, key),
+            )
             if cur.rowcount == 0:
                 # In case mark_object_processing_started() was never called
                 sql_insert = f"""
                 INSERT INTO {settings.processed_table} (
                     bucket, object_key, status,
                     rows_total, rows_inserted, rows_failed,
-                    processed_started_at, processed_finished_at
-                ) VALUES (%s, %s, 'success', %s, %s, %s, NOW(), NOW())
+                    processed_started_at, processed_finished_at,
+                    size_bytes
+                ) VALUES (%s, %s, 'success',
+                          %s, %s, %s,
+                          NOW(), NOW(),
+                          %s)
                 ON CONFLICT (bucket, object_key) DO UPDATE
                 SET status = 'success',
                     rows_total = EXCLUDED.rows_total,
                     rows_inserted = EXCLUDED.rows_inserted,
                     rows_failed = EXCLUDED.rows_failed,
+                    size_bytes = EXCLUDED.size_bytes,
                     processed_finished_at = NOW(),
                     processed_at = NOW();
                 """
-                cur.execute(sql_insert, (bucket, key, rows_total, rows_inserted, rows_failed))
+                cur.execute(
+                    sql_insert,
+                    (
+                        bucket,
+                        key,
+                        rows_total,
+                        rows_inserted,
+                        rows_failed,
+                        size_bytes,
+                    ),
+                )
         conn.commit()
 
     logger.info(
-        "[DB] Marked object as success: %s/%s (total=%d, inserted=%d, failed=%d)",
+        "[DB] Marked object as success: %s/%s (total=%d, inserted=%d, failed=%d, size_bytes=%r)",
         bucket,
         key,
         rows_total,
         rows_inserted,
         rows_failed,
+        size_bytes,
     )
 
 
