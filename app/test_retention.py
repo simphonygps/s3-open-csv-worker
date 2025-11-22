@@ -1,4 +1,3 @@
-import types
 import pytest
 
 from app import retention_worker
@@ -7,11 +6,22 @@ from app import retention_worker
 class DummyConn:
     """
     Very simple dummy connection / cursor to avoid real DB.
-    You can extend this or replace with your own mock library later.
+    Works as a context manager so it can be used with:
+
+        with get_connection() as conn:
+            ...
+
     """
     def __init__(self, rows=None):
         self.rows = rows or []
         self.closed = False
+
+    # context manager methods
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
     def cursor(self, cursor_factory=None):
         return DummyCursor(self.rows)
@@ -32,6 +42,7 @@ class DummyCursor:
         pass
 
     def execute(self, query, params=None):
+        # just store what was executed for potential inspection
         self.queries.append((query, params))
 
     def fetchall(self):
@@ -44,10 +55,11 @@ def test_get_retention_history_empty(monkeypatch):
     """
     dummy_conn = DummyConn(rows=[])
 
-    def fake_get_conn():
+    # monkeypatch the real DB connection helper used in retention_worker
+    def fake_get_connection():
         return dummy_conn
 
-    monkeypatch.setattr(retention_worker, "_get_conn", fake_get_conn)
+    monkeypatch.setattr(retention_worker, "get_connection", fake_get_connection)
 
     result = retention_worker.get_retention_history(limit=10)
 
@@ -67,7 +79,7 @@ def test_notify_retention_prints(capfd):
     assert "total_size_mb=" in out
 
 
-# Skeletons for future tests (you can fill later):
+# Skeletons for future tests (to be implemented later)
 
 @pytest.mark.skip(reason="to be implemented")
 def test_preview_mode(monkeypatch):
