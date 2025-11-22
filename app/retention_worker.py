@@ -1,5 +1,3 @@
-# app/retention_worker.py
-
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -131,6 +129,9 @@ def _update_status(
 ) -> None:
     """
     Update lifecycle status and error fields in s3_processed_files for a given object.
+
+    This helper is used for non-delete statuses (e.g. 'missing', 'delete_error').
+    It does NOT touch deleted_at/deleted_reason/deletion_mode.
     """
     sql = f"""
         UPDATE {settings.processed_table}
@@ -152,6 +153,68 @@ def _update_status(
         status,
         error_code,
     )
+
+
+def _mark_deleted_success(
+    bucket: str,
+    key: str,
+    deleted_reason: str,
+    deletion_mode: str,
+) -> None:
+    """
+    Mark object as successfully deleted by retention.
+
+    This sets:
+      - status = 'deleted'
+      - deleted_at = NOW()
+      - deleted_reason
+      - deletion_mode (e.g. 'auto-retention')
+    """
+    sql = f"""
+        UPDATE {settings.processed_table}
+        SET status = %s,
+            deleted_at = NOW(),
+            deleted_reason = %s,
+            deletion_mode = %s
+        WHERE bucket = %s AND object_key = %s;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, ("deleted", deleted_reason, deletion_mode, bucket, key))
+        conn.commit()
+
+    logger.info(
+        "[RETENTION][DB] Marked deleted: %s/%s -> status='deleted', "
+        "deleted_reason=%r, deletion_mode=%r",
+        bucket,
+        key,
+        deleted_reason,
+        deletion_mode,
+    )
+
+
+def _notify_retention(summary: Dict[str, Any]) -> None:
+    """
+    Mock notification for retention actions.
+
+    Currently logs/prints a summary. Later this can be wired to Slack/email.
+    """
+    files_deleted = summary.get("files_deleted", 0) or 0
+    total_size_bytes = summary.get("total_size_bytes", 0) or 0
+
+    if total_size_bytes:
+        total_size_mb = round(total_size_bytes / (1024 * 1024), 3)
+    else:
+        total_size_mb = 0
+
+    msg = (
+        f"[NOTIFY] Retention removed {files_deleted} files "
+        f"(total_size_mb={total_size_mb})"
+    )
+    # Print to stdout and log to logger for operators
+    print(msg)
+    logger.info(msg)
 
 
 def get_retention_preview() -> Dict[str, Any]:
@@ -247,6 +310,67 @@ def get_retention_preview() -> Dict[str, Any]:
     return preview
 
 
+def get_retention_history(limit: int = 50) -> Dict[str, Any]:
+    """
+    Return last `limit` deleted objects from the lifecycle table
+    (s3_processed_files). Used by /retention/history endpoint.
+    """
+    sql = f"""
+        SELECT
+            bucket,
+            object_key,
+            status,
+            rows_total,
+            rows_inserted,
+            rows_failed,
+            processed_finished_at,
+            deleted_at,
+            deleted_reason,
+            deletion_mode
+        FROM {settings.processed_table}
+        WHERE deleted_at IS NOT NULL
+        ORDER BY deleted_at DESC
+        LIMIT %s;
+    """
+
+    items: List[Dict[str, Any]] = []
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (limit,))
+            for (
+                bucket,
+                object_key,
+                status,
+                rows_total,
+                rows_inserted,
+                rows_failed,
+                processed_finished_at,
+                deleted_at,
+                deleted_reason,
+                deletion_mode,
+            ) in cur.fetchall():
+                items.append(
+                    {
+                        "bucket": bucket,
+                        "object_key": object_key,
+                        "status": status,
+                        "rows_total": rows_total,
+                        "rows_inserted": rows_inserted,
+                        "rows_failed": rows_failed,
+                        "processed_finished_at": processed_finished_at,
+                        "deleted_at": deleted_at,
+                        "deleted_reason": deleted_reason,
+                        "deletion_mode": deletion_mode,
+                    }
+                )
+
+    return {
+        "count": len(items),
+        "items": items,
+    }
+
+
 def run_retention_check():
     """
     Run a single retention scan from CLI.
@@ -300,6 +424,10 @@ def run_retention_check():
     deleted_count = 0
     mark_missing_count = 0
     delete_error_count = 0
+    total_size_bytes = 0  # placeholder, 0 for now (no size tracking yet)
+
+    deleted_reason = "retention_policy"
+    deletion_mode = "auto-retention"
 
     for c in candidates:
         bucket = c["bucket"]
@@ -309,7 +437,12 @@ def run_retention_check():
         if exists:
             try:
                 s3.delete_object(Bucket=bucket, Key=key)
-                _update_status(bucket, key, status="deleted")
+                _mark_deleted_success(
+                    bucket=bucket,
+                    key=key,
+                    deleted_reason=deleted_reason,
+                    deletion_mode=deletion_mode,
+                )
                 deleted_count += 1
                 print("  -> deleted from S3 and marked status='deleted' in DB")
             except Exception as e:
@@ -351,6 +484,14 @@ def run_retention_check():
         deleted_count,
         mark_missing_count,
         delete_error_count,
+    )
+
+    # Mock notification (console + log)
+    _notify_retention(
+        {
+            "files_deleted": deleted_count,
+            "total_size_bytes": total_size_bytes,
+        }
     )
 
 

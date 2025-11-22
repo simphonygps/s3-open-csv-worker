@@ -1,5 +1,3 @@
-# app/main.py
-
 import logging
 
 from fastapi import FastAPI, BackgroundTasks, Request
@@ -15,7 +13,7 @@ from .db import (
 )
 from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
-from .retention_worker import get_retention_preview
+from .retention_worker import get_retention_preview, get_retention_history
 
 settings = get_settings()
 app = FastAPI(title="s3-open-csv-worker")
@@ -254,7 +252,7 @@ async def minio_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 # ---------------------------------------------------------------------------
-# Retention preview endpoint (read-only)
+# Retention endpoints (read-only + history)
 # ---------------------------------------------------------------------------
 
 @app.get("/retention/preview")
@@ -268,3 +266,13 @@ def retention_preview():
     """
     preview = get_retention_preview()
     return preview
+
+
+@app.get("/retention/history")
+def retention_history(limit: int = 50):
+    """
+    Return last `limit` deleted objects from the lifecycle table
+    (s3_processed_files) as a read-only audit view.
+    """
+    history = get_retention_history(limit=limit)
+    return history
