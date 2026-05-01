@@ -5,7 +5,7 @@ import json
 from contextlib import contextmanager
 
 import psycopg2
-from psycopg2.extras import execute_batch
+from psycopg2.extras import Json, execute_batch
 
 from .config import get_settings
 
@@ -336,10 +336,16 @@ def insert_soft_data_rows(rows: list[dict]):
     ) VALUES ({placeholders})
     """
 
-    values = [
-        tuple(row.get(col) for col in columns)
-        for row in rows
-    ]
+    values = []
+    for row in rows:
+        row_values = []
+        for col in columns:
+            v = row.get(col)
+            if col == "raw_payload" and v is not None:
+                row_values.append(Json(v))
+            else:
+                row_values.append(v)
+        values.append(tuple(row_values))
 
     logger.info(
         "[DB] Inserting %d rows into soft_data with columns: %s",

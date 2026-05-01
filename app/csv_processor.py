@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Any
@@ -177,6 +178,11 @@ def process_csv_bytes(csv_bytes: bytes) -> dict[str, int]:
 
         # override / set source column
         mapped["source"] = "s3-open"
+
+        # soft_data.raw_payload is NOT NULL in current schema.
+        # Keep both structured JSON and text for audit/debug parity with other flows.
+        mapped["raw_payload"] = dict(row)
+        mapped["raw_payload_text"] = json.dumps(row, ensure_ascii=False)
 
         batch.append(mapped)
         rows_inserted += 1
