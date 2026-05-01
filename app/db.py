@@ -1,6 +1,7 @@
 # app/db.py
 
 import logging
+import json
 from contextlib import contextmanager
 
 import psycopg2
@@ -350,8 +351,51 @@ def insert_soft_data_rows(rows: list[dict]):
         try:
             with conn.cursor() as cur:
                 execute_batch(cur, sql, values, page_size=500)
+                _insert_telemetry_etl_rows(cur, rows)
             conn.commit()
         except Exception:
             conn.rollback()
             logger.exception("[DB] Failed to insert batch into soft_data")
             raise
+
+
+def _insert_telemetry_etl_rows(cur, rows: list[dict]) -> None:
+    """
+    Best-effort ETL routing observability for offline CSV records.
+    """
+    if not rows:
+        return
+
+    sql = """
+    INSERT INTO public.telemetry_etl_records (
+        dedup_key,
+        flow_id, transport, source, probe_type, protocol_version, contract_version,
+        message_type, payload_shape, device_identifier_type, device_id, etl_branch,
+        routing_status, routing_reason, processing_status, traccar_sync_status,
+        normalized_payload, received_at, routed_at
+    )
+    VALUES (%s,
+            'offline_csv_v12', 'file', 's3-open', 'sw', 'legacy', '1.2',
+            'offline_file_payload', 'csv_file', 'software_device_id', %s, 'offline_csv_file_v12',
+            'matched', 'matched s3-open csv flow', 'completed', 'pending',
+            %s::jsonb, %s, NOW())
+    ON CONFLICT DO NOTHING
+    """
+
+    payload_rows = []
+    for row in rows:
+        device_id = row.get("deviceid")
+        ts = row.get("timestamp")
+        dedup_key = None
+        if device_id is not None and ts is not None:
+            dedup_key = f"s3-open:{device_id}:{ts}"
+        payload_rows.append(
+            (
+                dedup_key,
+                device_id,
+                json.dumps(row, default=str),
+                ts,
+            )
+        )
+
+    execute_batch(cur, sql, payload_rows, page_size=500)
