@@ -13,6 +13,7 @@ from .db import (
 )
 from .s3_client import download_object_to_bytes
 from .csv_processor import process_csv_bytes
+from .ndjson_processor import process_ndjson_bytes
 from .retention_worker import (
     get_retention_preview,
     get_retention_history,
@@ -24,6 +25,17 @@ app = FastAPI(title="s3-open-csv-worker")
 
 logger = logging.getLogger("s3-open-csv-worker")
 logging.basicConfig(level=logging.INFO)
+
+
+def _detect_payload_shape_from_key(key: str) -> str:
+    k = (key or "").lower()
+    if k.endswith(".ndjson.gz") or k.endswith(".jsonl.gz"):
+        return "ndjson_gz_file"
+    if k.endswith(".ndjson") or k.endswith(".jsonl"):
+        return "ndjson_file"
+    if k.endswith(".csv.gz"):
+        return "csv_gz_file"
+    return "csv_file"
 
 
 # ---------------------------------------------------------------------------
@@ -161,23 +173,27 @@ def handle_object(bucket: str, key: str):
         )
         return
 
-    # CSV parsing + DB insertion
+    payload_shape = _detect_payload_shape_from_key(key)
+    # File parsing + DB insertion
     try:
-        logger.info("[CSV] Starting CSV processing for %s/%s", bucket, key)
-        summary = process_csv_bytes(data)
+        logger.info("[INGEST] Starting processing for %s/%s shape=%s", bucket, key, payload_shape)
+        if payload_shape in ("ndjson_file", "ndjson_gz_file"):
+            summary = process_ndjson_bytes(data, payload_shape)
+        else:
+            summary = process_csv_bytes(data)
         logger.info(
-            "[CSV] Finished CSV processing for %s/%s: %s",
+            "[INGEST] Finished processing for %s/%s: %s",
             bucket,
             key,
             summary,
         )
     except Exception as e:
-        logger.exception("[CSV] Failed to process CSV for %s/%s", bucket, key)
+        logger.exception("[INGEST] Failed to process file for %s/%s", bucket, key)
         # Mark as error in lifecycle table (no reliable counters here)
         mark_object_processed_error(
             bucket=bucket,
             key=key,
-            error_code="CSV_PROCESS_ERROR",
+            error_code="FILE_PROCESS_ERROR",
             error_message=str(e),
         )
         return

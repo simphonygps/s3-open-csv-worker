@@ -320,8 +320,9 @@ def insert_soft_data_rows(rows: list[dict]):
     if not rows:
         return
 
-    # Column order is taken from the first row
-    columns = list(rows[0].keys())
+    # Column order is taken from the first row.
+    # Internal ETL metadata keys (prefixed with "_") are not soft_data columns.
+    columns = [k for k in rows[0].keys() if not k.startswith("_")]
 
     # Always quote column names to preserve exact case (camelCase, etc.)
     def escape_col(name: str) -> str:
@@ -380,11 +381,7 @@ def _insert_telemetry_etl_rows(cur, rows: list[dict]) -> None:
         routing_status, routing_reason, processing_status, traccar_sync_status,
         normalized_payload, received_at, routed_at
     )
-    VALUES (%s,
-            'offline_csv_v12', 'file', 's3-open', 'sw', 'legacy', '1.2',
-            'offline_file_payload', 'csv_file', 'software_device_id', %s, 'offline_csv_file_v12',
-            'matched', 'matched s3-open csv flow', 'completed', 'pending',
-            %s::jsonb, %s, NOW())
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'matched', %s, 'completed', 'pending', %s::jsonb, %s, NOW())
     ON CONFLICT DO NOTHING
     """
 
@@ -392,13 +389,36 @@ def _insert_telemetry_etl_rows(cur, rows: list[dict]) -> None:
     for row in rows:
         device_id = row.get("deviceid")
         ts = row.get("timestamp")
+        probe_type = row.get("_etl_probe_type") or row.get("msg_probe") or "sw"
+        protocol_version = row.get("_etl_protocol_version") or "legacy"
+        flow_id = row.get("_etl_flow_id") or "offline_csv_v12"
+        transport = row.get("_etl_transport") or "file"
+        source = row.get("_etl_source") or "s3-open"
+        contract_version = row.get("_etl_contract_version") or "1.2"
+        message_type = row.get("_etl_message_type") or "offline_file_payload"
+        payload_shape = row.get("_etl_payload_shape") or "csv_file"
+        device_identifier_type = row.get("_etl_device_identifier_type") or "software_device_id"
+        etl_branch = row.get("_etl_branch") or "offline_csv_file_v12"
+        routing_reason = row.get("_etl_routing_reason") or "matched s3-open csv flow"
+
         dedup_key = None
         if device_id is not None and ts is not None:
-            dedup_key = f"s3-open:{device_id}:{ts}"
+            dedup_key = f"{source}:{probe_type}:{device_id}:{ts}"
         payload_rows.append(
             (
                 dedup_key,
+                flow_id,
+                transport,
+                source,
+                probe_type,
+                protocol_version,
+                contract_version,
+                message_type,
+                payload_shape,
+                device_identifier_type,
                 device_id,
+                etl_branch,
+                routing_reason,
                 json.dumps(row, default=str),
                 ts,
             )
