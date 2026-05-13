@@ -1,6 +1,6 @@
 # Android SWProbe CSV Legacy Boundary
 
-Source status: split from already-migrated `Android application - swprobe` knowledge and refreshed from already-read `SWProbes Open` knowledge on 2026-05-13.
+Source status: refreshed from current `s3-open-csv-worker` docs/code, already-read `SWProbes Open` knowledge, and older `Android application - swprobe` CSV/offline behavior on 2026-05-13.
 
 ## Current Boundary
 
@@ -26,6 +26,12 @@ Android NDJSON/JSONL queue
 ```
 
 This repo may become that v2.3.0 parser owner, but code must be explicitly updated from `T2.2` to `T2.3.0` first.
+
+## Android Queue Context
+
+The older Android source says mobile should upload only closed files, attempt queued files oldest first, keep failed files queued, and delete local files only after upload success. Preserve that as client-side reliability context.
+
+This worker should not infer Android queue correctness from parser order. Parser evidence is `s3_processed_files` status/counters plus inserted `soft_data` and `telemetry_etl_records`.
 
 ## Open Question
 

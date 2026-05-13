@@ -1,6 +1,6 @@
 # SWProbes Open CSV To Soft Data
 
-Source status: redone from the already-read full `SWProbes Open` Confluence section on 2026-05-12/13, then refreshed with the already-read `S3 Open service` section on 2026-05-13, and reconciled with current `s3-open-csv-worker` code.
+Source status: redone from the already-read full `SWProbes Open` Confluence section on 2026-05-12/13, refreshed with the already-read `S3 Open service` section, enhanced with older `Android application - swprobe` offline-file behavior on 2026-05-13, and reconciled with current `s3-open-csv-worker` code.
 
 ## Worker Role
 
@@ -46,3 +46,5 @@ This repo already contains NDJSON parser code, but it validates `EN.TP == T2.2` 
 Older migration plans used Python ETL as the target replacement for NiFi. This worker is the current concrete owner of the CSV-to-database slice.
 
 Older SWProbes Open pages describe `WS + S3 + plain CSV + Python ETL` as the November/December 2025 predecessor architecture. For this repo, the still-current piece is S3 offline file parsing. WebSocket primary telemetry, MQTT, FTP, ZIP upload, NiFi, and Redis-stream-only persistence remain historical unless explicitly reopened.
+
+The older Android source adds queue semantics: closed files only, oldest queued file first, retry/keep on failure, and delete local file after upload success. For this worker those rules are diagnostic context. Parser truth is row validation, `soft_data` insertion, ETL observability, and `s3_processed_files` lifecycle counters.

@@ -1,6 +1,6 @@
 # S3 Open Stage-1 CSV Processing
 
-Source status: redone from the already-read full `S3 Open service` Confluence section on 2026-05-13 and reconciled with current `s3-open-csv-worker` code.
+Source status: redone from the already-read full `S3 Open service` Confluence section on 2026-05-13, enhanced with older `Android application - swprobe` CSV/offline behavior, and reconciled with current `s3-open-csv-worker` code.
 
 ## Worker Role
 
@@ -52,3 +52,5 @@ Current code note: object suffix routing defaults unknown suffixes to `csv_file`
 This worker is the concrete replacement for older FTP/NiFi/ZIP-oriented offline processing ideas in the Stage-1 S3 Open path.
 
 Older SWProbes Open pages that mention WS/S3/plain CSV/Python ETL are predecessor architecture. Current online Android telemetry is HTTP Open `2.3.0` through the telemetry ingestor; this worker only handles offline files after S3 upload.
+
+The older Android source confirms that mobile upload success and local file deletion happen before this parser's responsibility begins. Parser acceptance is not Android upload acceptance; it is object download, row parse, canonical insertion, and lifecycle status.

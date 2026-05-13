@@ -32,6 +32,8 @@ Current reading of `SWProbes Open`: this repo owns the offline file-to-canonical
 
 Current reading of `S3 Open service`: this repo owns the post-upload parser and retention stage only. The Stage-1 S3 Open pages describe the wider chain, but this worker starts at ObjectCreated webhook handling and ends with `soft_data`, `telemetry_etl_records`, and `s3_processed_files` lifecycle evidence.
 
+Current reading of `Android application - swprobe`: Android local CSV and upload queue behavior is upstream context for this worker. Parser ownership starts after object bytes are delivered; Android queue order, local file closure, presign behavior, and local deletion are not parser guarantees.
+
 Known current caveats from code comparison:
 
 - unknown object suffixes currently fall through to CSV handling; diagnostic `.ping` files should be explicitly ignored or handled as non-telemetry.

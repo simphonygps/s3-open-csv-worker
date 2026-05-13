@@ -21,6 +21,12 @@ Predecessor/history for this repo: WS primary telemetry, MQTT, FTP, ZIP, NiFi, a
 
 Implementation follow-up: decide whether this repo owns the future v2.3.0 NDJSON/JSONL parser. If yes, update `app/ndjson_processor.py` from `T2.2` / `2.2` / `offline_ndjson_v22` to the final v2.3.0 contract and add focused tests.
 
+## 2026-05-13 Android Application SWProbe Source Pass
+
+`Android application - swprobe` knowledge has been applied to this repo as Android legacy CSV/offline-file parser context.
+
+Current decision: preserve Android closed-file queueing, oldest-first retry, keep-on-failure, and delete-after-upload-success as upstream client reliability rules. This worker owns parser success after object delivery: `soft_data`, `telemetry_etl_records`, and `s3_processed_files` lifecycle. It must not claim Android v2.3.0 NDJSON replay until `app/ndjson_processor.py` is aligned from `T2.2` / `2.2` to `T2.3.0` / `2.3.0`.
+
 ## 2026-05-13 S3 Open Service Redo
 
 Repository: `s3-open-csv-worker`

@@ -26,3 +26,5 @@ For downstream Traccar compatibility, the CSV worker should preserve normalized 
 The worker also contains an NDJSON parser path selected by file extension. That path currently expects `EN.TP=T2.2`; do not describe it as completed v2.3.0 offline support until code and tests are aligned.
 
 Operational caveat: `.csv.gz` is detected by key suffix in the webhook flow, but the CSV parser currently decodes bytes directly as UTF-8. Gzip CSV support needs verification or implementation before being treated as active.
+
+The older Android source explains why CSV objects may arrive late or in batches: mobile keeps failed files queued and retries. Treat parser `received`/`processed` time as worker timing, not necessarily telemetry capture order. Use row timestamps and object key evidence when reconstructing history.
