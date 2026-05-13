@@ -27,6 +27,8 @@ Android NDJSON/JSONL queue
 
 This repo may become that v2.3.0 parser owner, but code must be explicitly updated from `T2.2` to `T2.3.0` first.
 
+Older architecture/design pages that describe CSV or Python ETL are predecessor history. They explain why this worker exists, but they do not override the current Android `2.3.0` direction toward NDJSON/JSONL offline replay.
+
 ## Android Queue Context
 
 The older Android source says mobile should upload only closed files, attempt queued files oldest first, keep failed files queued, and delete local files only after upload success. Preserve that as client-side reliability context.

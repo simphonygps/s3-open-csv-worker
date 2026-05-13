@@ -53,6 +53,8 @@ This worker is the concrete replacement for older FTP/NiFi/ZIP-oriented offline 
 
 Older SWProbes Open pages that mention WS/S3/plain CSV/Python ETL are predecessor architecture. Current online Android telemetry is HTTP Open `2.3.0` through the telemetry ingestor; this worker only handles offline files after S3 upload.
 
+The very old architecture/design section describes the same S3-compatible Open Service at a higher level. For this worker, keep that material as parser/ETL origin history. It does not supersede the current boundary: presign and object metadata are upstream, parser/lifecycle is here, customer visibility and Traccar projection are downstream.
+
 The older Android source confirms that mobile upload success and local file deletion happen before this parser's responsibility begins. Parser acceptance is not Android upload acceptance; it is object download, row parse, canonical insertion, and lifecycle status.
 
 ## Engineering Verification Meaning

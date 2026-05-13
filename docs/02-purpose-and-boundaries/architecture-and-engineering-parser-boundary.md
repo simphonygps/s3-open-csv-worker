@@ -1,6 +1,6 @@
 # Architecture And Engineering Parser Boundary
 
-Source status: split from already-migrated Architecture/Engineering knowledge on 2026-05-13; enhanced from Confluence `Engineering` CSV-worker destination pass on 2026-05-12.
+Source status: split from already-migrated Architecture/Engineering knowledge on 2026-05-13; enhanced from Confluence `Engineering` CSV-worker destination pass and the very old `Architecture, design and high-level plans` section.
 
 ## Current Role
 
@@ -54,3 +54,12 @@ Traccar projection is downstream compatibility. This worker may mark rows as pen
 9. FastAPI reads, frontend visibility, and Traccar projection are downstream evidence.
 
 Historical Engineering notes about WS `v1.5`, Redis-stream-only persistence, MQTT/FTP, NiFi, and `dev-etl-open-1` are predecessor or deployment-specific context for this repository.
+
+## Old Architecture Design Classification
+
+The old architecture/design pages that describe S3-compatible Open Service and ETL are relevant as parser-origin context, but must be read by layer:
+
+- current here: object byte download, CSV parser, implemented older/intermediate NDJSON parser, row validation, `soft_data` insertion, best-effort `telemetry_etl_records`, `s3_processed_files`, and retention preview/history/dry-delete surfaces;
+- upstream elsewhere: presign generation, upload URL/header policy, MinIO bucket/edge policy, Android queueing, MinIO object-created metadata, and `uploads` rows;
+- downstream elsewhere: FastAPI latest/history reads, frontend Map/History, Traccar projection execution, and operator/admin sync controls;
+- predecessor unless reopened: WS primary telemetry, MQTT/FTP/ZIP delivery, NiFi as final ETL owner, Redis-stream-only persistence, direct Traccar API calls from the parser, and CSV-only Android offline future.

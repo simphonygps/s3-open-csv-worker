@@ -36,6 +36,8 @@ Current reading of `S3 Open service`: this repo owns the post-upload parser and 
 
 Current reading of `Android application - swprobe`: Android local CSV and upload queue behavior is upstream context for this worker. Parser ownership starts after object bytes are delivered; Android queue order, local file closure, presign behavior, and local deletion are not parser guarantees.
 
+Current reading of `Architecture, design and high-level plans`: the S3-compatible Open Service and early ETL pages are old design-origin material. They explain why CSV parsing, Python ETL, MinIO/S3, retention, Redis, and Traccar appear in one architecture story, but they do not make this worker responsible for presign, upload metadata, online HTTP telemetry, frontend visibility, or Traccar execution.
+
 Known current caveats from code comparison:
 
 - unknown object suffixes currently fall through to CSV handling; diagnostic `.ping` files should be explicitly ignored or handled as non-telemetry.

@@ -10,6 +10,8 @@ CSV is Stage-1 verified legacy/import support. New v2.3.0 offline telemetry shou
 
 From the historical `S3 Open service` Stage-1 section, CSV means the first verified offline object format after presigned upload and MinIO ObjectCreated notification. Treat that as predecessor/current legacy support, not the preferred future Android offline contract.
 
+The older architecture/design section reinforces CSV as the original S3-compatible parser path, but not as the final Android offline future. CSV remains Stage-1/legacy support unless a newer architecture decision re-promotes it.
+
 Current CSV validation requires:
 
 - parseable `timestamp`,
