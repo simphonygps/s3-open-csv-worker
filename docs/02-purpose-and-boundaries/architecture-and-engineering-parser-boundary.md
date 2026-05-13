@@ -1,6 +1,6 @@
 # Architecture And Engineering Parser Boundary
 
-Source status: split from already-migrated Architecture/Engineering knowledge on 2026-05-13.
+Source status: split from already-migrated Architecture/Engineering knowledge on 2026-05-13; enhanced from Confluence `Engineering` CSV-worker destination pass on 2026-05-12.
 
 ## Current Role
 
@@ -40,3 +40,17 @@ S3 Open Stage-1 also used `.ping` files as upload-path proof. Those files are di
 ## Traccar Boundary
 
 Traccar projection is downstream compatibility. This worker may mark rows as pending for projection through ETL metadata, but it must not call Traccar directly or own sync retries.
+
+## Engineering Verification Layers
+
+1. `/health`, `/health/db`, and `/health/s3` prove runtime dependencies only.
+2. `/minio-webhook` proves the worker was notified.
+3. Object download proves the worker can read object bytes.
+4. Payload-shape routing proves the correct CSV or NDJSON parser branch was selected.
+5. Row validation proves semantic parser acceptance.
+6. `soft_data` rows prove canonical storage.
+7. `telemetry_etl_records` proves projection-readiness metadata when available.
+8. `s3_processed_files` status and counters prove object lifecycle closure.
+9. FastAPI reads, frontend visibility, and Traccar projection are downstream evidence.
+
+Historical Engineering notes about WS `v1.5`, Redis-stream-only persistence, MQTT/FTP, NiFi, and `dev-etl-open-1` are predecessor or deployment-specific context for this repository.

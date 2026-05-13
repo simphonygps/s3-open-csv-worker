@@ -43,3 +43,4 @@ Active follow-ups:
 - verify/fix `.csv.gz` support before describing it as complete; current code detects the suffix but CSV processing does not decompress gzip bytes.
 - decide whether v2.3.0 NDJSON/JSONL offline replay belongs here. Current NDJSON code is still the older/intermediate `T2.2` / `2.2` path.
 - preserve `s3_processed_files` lifecycle counters as the operational proof of parser success, including partial row failures.
+- Treat the Confluence `Engineering` section as parser/runtime verification source material for this worker. Preserve layered download/shape/row-validation/`soft_data`/`telemetry_etl_records`/`s3_processed_files` evidence, but keep WS `v1.5`, Redis-stream-only persistence, MQTT/FTP, NiFi, FastAPI reads, frontend visibility, and Traccar execution as predecessor or downstream context unless a current task explicitly reassigns ownership.

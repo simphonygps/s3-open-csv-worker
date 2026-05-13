@@ -48,3 +48,16 @@ Older migration plans used Python ETL as the target replacement for NiFi. This w
 Older SWProbes Open pages describe `WS + S3 + plain CSV + Python ETL` as the November/December 2025 predecessor architecture. For this repo, the still-current piece is S3 offline file parsing. WebSocket primary telemetry, MQTT, FTP, ZIP upload, NiFi, and Redis-stream-only persistence remain historical unless explicitly reopened.
 
 The older Android source adds queue semantics: closed files only, oldest queued file first, retry/keep on failure, and delete local file after upload success. For this worker those rules are diagnostic context. Parser truth is row validation, `soft_data` insertion, ETL observability, and `s3_processed_files` lifecycle counters.
+
+## Engineering Evidence Rule
+
+Transport/upload success is not semantic parser success. Close offline parser work only when the same object key has:
+
+- successful object-byte download,
+- selected parser branch,
+- validated row counters,
+- inserted `soft_data` rows for accepted telemetry,
+- best-effort `telemetry_etl_records` if projection-readiness is part of the task,
+- `s3_processed_files` status with counters and size.
+
+If downstream Map/History or Traccar projection is needed, continue validation in the owning repositories after this worker evidence is complete.

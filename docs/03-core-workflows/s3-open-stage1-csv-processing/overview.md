@@ -54,3 +54,16 @@ This worker is the concrete replacement for older FTP/NiFi/ZIP-oriented offline 
 Older SWProbes Open pages that mention WS/S3/plain CSV/Python ETL are predecessor architecture. Current online Android telemetry is HTTP Open `2.3.0` through the telemetry ingestor; this worker only handles offline files after S3 upload.
 
 The older Android source confirms that mobile upload success and local file deletion happen before this parser's responsibility begins. Parser acceptance is not Android upload acceptance; it is object download, row parse, canonical insertion, and lifecycle status.
+
+## Engineering Verification Meaning
+
+For this repo, Stage-1 closure must be read at parser granularity:
+
+- presign and PUT are upstream evidence,
+- MinIO ObjectCreated and upload metadata are upstream evidence,
+- object download starts this worker's proof,
+- row validation and `soft_data` insertion are parser proof,
+- `s3_processed_files` lifecycle counters are operational proof,
+- FastAPI/latest-history/frontend/Traccar proof belongs downstream.
+
+Use replay/local parsing to validate contract and mapping, but do not treat replay success as live runtime proof unless the live object path and lifecycle rows are also checked.

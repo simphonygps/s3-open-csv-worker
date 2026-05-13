@@ -15,6 +15,7 @@ Responsibilities:
 - preserve raw/audit payload where schema requires it.
 - track processed-file status and avoid duplicate row insertion.
 - write projection-readiness metadata such as `telemetry_etl_records` when supported.
+- preserve runtime evidence for object download, parser branch selection, row counters, canonical inserts, ETL metadata, and processed-file lifecycle.
 
 Android NDJSON/JSONL v2.3.0 processing is not complete until this worker accepts `EN.TP=T2.3.0` and records `contract_version=2.3.0` / `protocol_version=T2.3.0`, or a future decision assigns that parser to another service.
 
@@ -27,6 +28,7 @@ Out of scope:
 - Traccar sync job retry/admin operations.
 - customer/account/device business workflows outside CSV row parsing.
 - Android online HTTP Open `2.3.0` ingestion.
+- proving FastAPI latest/history reads, frontend Map/History visibility, or Traccar delivery.
 
 Current reading of `SWProbes Open`: this repo owns the offline file-to-canonical-telemetry parser slice. WS primary telemetry, MQTT, FTP, ZIP, NiFi, and Redis-stream-only persistence are predecessor/history for this repo unless explicitly reopened.
 
@@ -39,3 +41,11 @@ Known current caveats from code comparison:
 - unknown object suffixes currently fall through to CSV handling; diagnostic `.ping` files should be explicitly ignored or handled as non-telemetry.
 - `.csv.gz` is detected by suffix, but gzip decompression is not implemented in the CSV parser path.
 - NDJSON gzip is implemented, but the NDJSON envelope version is still `T2.2`, not current Android `T2.3.0`.
+
+Engineering boundary rule:
+
+```text
+object exists != object downloaded != file parsed != row accepted != soft_data inserted != downstream visibility
+```
+
+This worker owns parser and lifecycle proof only.
