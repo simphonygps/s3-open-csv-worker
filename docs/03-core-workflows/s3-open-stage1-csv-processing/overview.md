@@ -1,6 +1,6 @@
 # S3 Open Stage-1 CSV Processing
 
-Source status: split from already-migrated S3 Open service knowledge and refreshed from already-read `SWProbes Open` knowledge on 2026-05-13.
+Source status: redone from the already-read full `S3 Open service` Confluence section on 2026-05-13 and reconciled with current `s3-open-csv-worker` code.
 
 ## Worker Role
 
@@ -14,6 +14,16 @@ Current flow:
 MinIO CSV object -> s3-open-csv-worker -> s3_processed_files -> soft_data
 ```
 
+Wider historical Stage-1 flow:
+
+```text
+device -> POST /s3/presign -> PUT object to MinIO
+  -> ObjectCreated webhook -> upload metadata/worker chain
+  -> s3-open-csv-worker -> soft_data
+```
+
+Only the final parser/lifecycle part belongs to this repo.
+
 ## Processing Expectations
 
 - Parse files line by line.
@@ -26,6 +36,16 @@ MinIO CSV object -> s3-open-csv-worker -> s3_processed_files -> soft_data
 ## Stage-1 Distinction
 
 `.ping` or small diagnostic files are proof of upload path behavior. They should not be treated as telemetry rows.
+
+Current code note: object suffix routing defaults unknown suffixes to `csv_file`. Verify that `.ping` and other upload-proof files are filtered before parse or recorded as non-telemetry lifecycle evidence.
+
+## Current Code Caveats
+
+- CSV rows require parseable `timestamp`, non-empty `deviceId`, parseable `latitude`, and parseable `longitude`.
+- Partial row failures are counted, while the object can still be marked `success` if processing completes.
+- `.csv.gz` is detected as a payload shape, but the CSV path does not currently decompress gzip bytes.
+- `.ndjson.gz` and `.jsonl.gz` are decompressed in the NDJSON path.
+- NDJSON/JSONL currently targets the older `T2.2` / `2.2` envelope, not Android `T2.3.0`.
 
 ## Historical Context
 

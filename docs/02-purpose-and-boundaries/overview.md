@@ -29,3 +29,11 @@ Out of scope:
 - Android online HTTP Open `2.3.0` ingestion.
 
 Current reading of `SWProbes Open`: this repo owns the offline file-to-canonical-telemetry parser slice. WS primary telemetry, MQTT, FTP, ZIP, NiFi, and Redis-stream-only persistence are predecessor/history for this repo unless explicitly reopened.
+
+Current reading of `S3 Open service`: this repo owns the post-upload parser and retention stage only. The Stage-1 S3 Open pages describe the wider chain, but this worker starts at ObjectCreated webhook handling and ends with `soft_data`, `telemetry_etl_records`, and `s3_processed_files` lifecycle evidence.
+
+Known current caveats from code comparison:
+
+- unknown object suffixes currently fall through to CSV handling; diagnostic `.ping` files should be explicitly ignored or handled as non-telemetry.
+- `.csv.gz` is detected by suffix, but gzip decompression is not implemented in the CSV parser path.
+- NDJSON gzip is implemented, but the NDJSON envelope version is still `T2.2`, not current Android `T2.3.0`.

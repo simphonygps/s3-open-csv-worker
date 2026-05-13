@@ -1,6 +1,6 @@
 # SWProbes Open CSV To Soft Data
 
-Source status: redone from the already-read full `SWProbes Open` Confluence section on 2026-05-12/13 and reconciled with current `s3-open-csv-worker` code.
+Source status: redone from the already-read full `SWProbes Open` Confluence section on 2026-05-12/13, then refreshed with the already-read `S3 Open service` section on 2026-05-13, and reconciled with current `s3-open-csv-worker` code.
 
 ## Worker Role
 
@@ -32,6 +32,8 @@ SWProbe/SXProbe
 - Track idempotency and lifecycle in `s3_processed_files`.
 - Keep raw objects for retention/audit/replay rather than deleting immediately after parsing.
 - Treat diagnostic `.ping` or tiny proof files as upload evidence, not telemetry rows.
+
+The S3 Open Stage-1 pages confirm that parser success is not the same as presign success or upload success. For this repo, success evidence is the combination of `s3_processed_files` lifecycle status/counters and inserted canonical rows.
 
 ## v2.3.0 Alignment Gap
 
