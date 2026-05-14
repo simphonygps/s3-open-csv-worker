@@ -1,0 +1,70 @@
+name: AI Source of Truth Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Optional base SHA for manual dry run
+        required: false
+      head_sha:
+        description: Optional head SHA for manual dry run
+        required: false
+      apply_changes:
+        description: Apply docs updates and open a draft PR
+        required: false
+        default: 'false'
+      apply_confluence:
+        description: Append Confluence SMS updates
+        required: false
+        default: 'false'
+
+jobs:
+  update-source-of-truth:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    concurrency:
+      group: ai-source-of-truth-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install openai
+
+      - name: Run documentation agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_DOCS_BOT_TOKEN: ${{ secrets.GH_DOCS_BOT_TOKEN }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          CONFLUENCE_SPACE_KEY: SMS
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          DOCS_BASE_SHA: ${{ inputs.base_sha }}
+          DOCS_HEAD_SHA: ${{ inputs.head_sha }}
+          DOCS_AGENT_APPLY: ${{ inputs.apply_changes }}
+          DOCS_CONFLUENCE_APPLY: ${{ inputs.apply_confluence }}
+        run: |
+          python scripts/ai_update_source_of_truth.py
+
+      - name: Upload documentation agent result
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-source-of-truth-result
+          path: docs/ai-source-of-truth-runs/latest-doc-agent-result.json
+          if-no-files-found: error

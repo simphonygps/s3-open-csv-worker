@@ -1,4 +1,4 @@
-# Task Lifecycle
+﻿# Task Lifecycle
 
 This repository keeps current work, priorities, progress, and completed-task archive in `docs/1-current-state/`.
 
@@ -25,9 +25,18 @@ This repository keeps current work, priorities, progress, and completed-task arc
 6. If no active task exists, write `No active task` explicitly in `active-tasks.md`.
 7. Start a new task only by explicitly adding it to `active-tasks.md`.
 8. Update progress when meaningful behavior, verification evidence, or blocker state changes.
+9. Every active task must explicitly state repository role: `leading`, `secondary`, or `unknown`.
+10. Every active task must name the leading repository. If the leading repository is not confirmed, write `Leading repository: NOT_CONFIRMED` and make ownership confirmation the next step.
+11. The leading repository owns the full task description, status, acceptance criteria, and completed-task archive entry. Secondary repositories document only their local responsibility.
 
 ## Progress Meaning
 
 Progress measures completed behavior and verified acceptance criteria.
 
 It does not measure number of edited files.
+
+## Daily And Milestone Reports
+Long-running tasks must produce daily or milestone reports in `activity-log.md` before completion.
+
+`current-progress.md` must stay as the short progress summary; `activity-log.md` is the detailed history.
+

@@ -1,4 +1,4 @@
-# Current State
+﻿# Current State
 
 This folder tracks the living state of `s3-open-csv-worker`: active tasks, priorities, progress, completed work, migration evidence, and stable reference documents/contracts.
 
@@ -15,3 +15,6 @@ This folder tracks the living state of `s3-open-csv-worker`: active tasks, prior
 - `reference-documents-and-contracts/`: stable contracts and reference documents the worker must follow.
 - `confluence-migration/`: completed or in-progress migration evidence and extraction maps.
 - `history/`: old history material that is no longer part of active task tracking.
+
+- `activity-log.md` - daily/session/milestone activity history.
+
