@@ -31,8 +31,8 @@ This page records how the Confluence `Traccar integration` section applies to `s
 
 ## Worker Documents Created From This Extraction
 
-- `docs/03-core-workflows/traccar-projection-boundary/overview.md`
-- `docs/04-csv-and-file-contracts/traccar-projection-fields/overview.md`
+- `docs/2-project-functionality/core-workflows/traccar-projection-boundary/overview.md`
+- `docs/2-project-functionality/csv-and-file-contracts/traccar-projection-fields/overview.md`
 
 ## Secret Handling
 

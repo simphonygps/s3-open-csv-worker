@@ -2,7 +2,7 @@
 
 No active implementation task is declared by this bootstrap.
 
-Initial next documentation task:
+Initial next documentation task, in priority order:
 
 - inspect code and document exact CSV header aliases, row validation rules, idempotency key, and DB columns.
 - preserve Traccar projection boundary: this worker writes Simphony canonical rows and ETL/projection metadata, but does not call Traccar directly.
@@ -37,7 +37,7 @@ Local path: `C:\Project\Docker compose\s3-open-csv-worker`
 
 Current decision: keep this repo focused on the S3 object parsing and retention slice. Historical S3 Open Stage-1 pages are relevant here only after an object has arrived in MinIO/S3 and a webhook points the worker to the object. Presign generation, device/tenant validation, upload metadata rows, and customer-facing APIs remain outside this repo.
 
-Active follow-ups:
+Active follow-ups, in priority order:
 
 - verify or harden `.ping` and other non-telemetry diagnostic files so they are ignored or marked as non-telemetry instead of falling through to CSV processing.
 - verify/fix `.csv.gz` support before describing it as complete; current code detects the suffix but CSV processing does not decompress gzip bytes.

@@ -89,10 +89,10 @@ Prefer safe test object keys, row counts, hashes/previews, timestamps, and sanit
 
 ## Files Updated From This Pass
 
-- `docs/01-current-state/active-tasks.md`
-- `docs/02-purpose-and-boundaries/overview.md`
-- `docs/02-purpose-and-boundaries/architecture-and-engineering-parser-boundary.md`
-- `docs/03-core-workflows/csv-file-processing/overview.md`
-- `docs/03-core-workflows/s3-open-stage1-csv-processing/overview.md`
-- `docs/03-core-workflows/swprobes-open-csv-to-soft-data/overview.md`
-- `docs/11-confluence-migration/engineering-csv-worker-extraction-map.md`
+- `docs/1-current-state/active-tasks.md`
+- `docs/2-project-functionality/purpose-and-boundaries/overview.md`
+- `docs/2-project-functionality/purpose-and-boundaries/architecture-and-engineering-parser-boundary.md`
+- `docs/2-project-functionality/core-workflows/csv-file-processing/overview.md`
+- `docs/2-project-functionality/core-workflows/s3-open-stage1-csv-processing/overview.md`
+- `docs/2-project-functionality/core-workflows/swprobes-open-csv-to-soft-data/overview.md`
+- `docs/1-current-state/confluence-migration/engineering-csv-worker-extraction-map.md`

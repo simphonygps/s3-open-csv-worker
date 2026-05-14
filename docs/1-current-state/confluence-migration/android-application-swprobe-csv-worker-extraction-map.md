@@ -91,12 +91,12 @@ For this repo, Android offline file parsing is accepted when:
 
 ## Documents Updated From This Extraction
 
-- `docs/01-current-state/active-tasks.md`
-- `docs/02-purpose-and-boundaries/overview.md`
-- `docs/03-core-workflows/android-swprobe-csv-legacy-boundary/overview.md`
-- `docs/03-core-workflows/csv-file-processing/overview.md`
-- `docs/03-core-workflows/swprobes-open-csv-to-soft-data/overview.md`
-- `docs/03-core-workflows/s3-open-stage1-csv-processing/overview.md`
+- `docs/1-current-state/active-tasks.md`
+- `docs/2-project-functionality/purpose-and-boundaries/overview.md`
+- `docs/2-project-functionality/core-workflows/android-swprobe-csv-legacy-boundary/overview.md`
+- `docs/2-project-functionality/core-workflows/csv-file-processing/overview.md`
+- `docs/2-project-functionality/core-workflows/swprobes-open-csv-to-soft-data/overview.md`
+- `docs/2-project-functionality/core-workflows/s3-open-stage1-csv-processing/overview.md`
 
 ## Secret Handling
 
