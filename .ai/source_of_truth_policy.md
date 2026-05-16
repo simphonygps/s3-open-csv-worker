@@ -158,6 +158,84 @@ If no matching active task exists:
 - create a new completed or active task entry in the correct source-of-truth location
 - connect it to the implemented feature or changed system area
 
+## 7.1 Merge-to-Dev Lifecycle Rule
+
+A merge into `dev` or `main` is a lifecycle signal.
+
+When the evidence shows that a branch was merged into `dev` or `main`, the agent must explicitly decide whether the related task or activity is:
+
+- `complete`
+- `active`
+- `postponed`
+- `cancelled`
+- `unknown`
+
+The merge does not always mean 100 percent completion. Some branches may be merged to preserve partial work, postpone a task, integrate a usable slice, or close a cancelled direction.
+
+If the merge completes the feature or activity:
+
+- mark the task as `complete`
+- record progress as 100 percent complete when the evidence supports that conclusion
+- keep dated progress/history entries in `docs/1-current-state/`
+- move or copy the durable feature description, workflow description, interface behavior, data flow, and implementation knowledge into the correct file under `docs/2-project-functionality/`
+- update `docs/1-current-state/active-tasks.md` so the task no longer appears as an active unfinished task
+- add or update the completed-task record when the repository has a completed-task archive
+
+If the merge only integrates partial work:
+
+- keep the task status as `active`
+- record what was completed by this merge
+- record what remains
+- keep the working task in `docs/1-current-state/`
+
+If the merge postpones the task:
+
+- mark the task as `postponed`
+- record the reason if evidence provides it
+- preserve the current implementation state and remaining work
+
+If the merge cancels or removes the task:
+
+- mark the task as `cancelled`
+- document what was removed or abandoned
+- preserve enough history for a future AI agent to understand why the direction ended
+
+Do not delete current-state history, activity logs, progress logs, or task records merely because a task is complete.
+
+When moving durable knowledge from `docs/1-current-state/` to `docs/2-project-functionality/`, prefer additive safe updates:
+
+- append a completion note to current-state logs
+- update active task status safely
+- create or update the stable feature documentation under `docs/2-project-functionality/`
+- avoid broad rewrites unless the complete existing file can be preserved
+
+If the agent cannot safely determine whether knowledge should move from current state to project functionality, it must set `review_required=true` or document the uncertainty instead of guessing.
+
+## 7.2 Self-Documentation Recursion Guard
+
+The documentation agent must not recursively create documentation PRs that only document documentation-agent maintenance, source-of-truth maintenance, or previous documentation PRs.
+
+If the changed files are only in these areas:
+
+```plaintext
+docs/
+.ai/
+.github/workflows/ai-source-of-truth.yml
+scripts/ai_update_source_of_truth.py
+```
+
+then the runner should normally return `updates_required=false`.
+
+This prevents loops where the agent documents its own generated documentation, then documents that documentation again.
+
+Use the explicit override only when documentation-agent maintenance itself must be automatically documented:
+
+```plaintext
+DOCS_AGENT_FORCE_SELF_DOCUMENTATION=true
+```
+
+Even with the override, all normal safety rules still apply.
+
 ## 8. Code Analysis Requirement
 
 After understanding the task from source-of-truth, Confluence, PR, and commit context, analyze the actual code changes.
@@ -192,6 +270,30 @@ Source-of-truth documentation must not be only a flat list of changed files.
 
 It must describe the feature in a technical way that future AI agents can use.
 
+The agent may propose automatic repository file updates only for Markdown files under:
+
+```plaintext
+docs/
+```
+
+Do not put `.ai/*`, `.github/workflows/*`, `scripts/*`, source code, configuration files, or non-Markdown files in `target_files`.
+
+The `.ai` policy/prompt/ownership files, workflow YAML files, scripts, and source code are evidence. They are not valid automatic documentation update targets.
+
+When updating an existing Markdown file, preserve unrelated existing content.
+
+Do not replace a long source-of-truth file with a shorter summary.
+
+Do not delete active tasks, historical progress logs, completed sections, acceptance criteria, TODO boards, or stable reference content unless the supplied evidence explicitly proves that removal is required.
+
+If a precise non-destructive update cannot be produced, set `review_required=true` and explain the limitation instead of proposing a broad rewrite.
+
+For daily, milestone, activity-log, run-log, and progress-history updates, prefer append-only updates.
+
+Use `operation: "append"` when the new knowledge is a new dated entry, milestone report, run result, or short progress note that should be added to the end of an existing Markdown file.
+
+Use `operation: "update"` only when the complete file can be preserved and rewritten safely.
+
 A good documentation update should include, when applicable:
 
 - feature summary
@@ -210,6 +312,89 @@ A good documentation update should include, when applicable:
 If the existing documentation hierarchy is not enough to describe the feature safely, you may create new folders or Markdown files inside the repository documentation tree.
 
 Create new documentation structure only when it is needed to make the source of truth understandable and maintainable.
+
+Do not create loose source-of-truth Markdown files directly under the `docs/` root.
+
+The `docs/` root should contain organized folders, not one-off documentation files.
+
+Automatic Markdown source-of-truth updates may be created or changed only inside these approved top-level folders:
+
+```plaintext
+docs/0-start-here/
+docs/1-current-state/
+docs/2-project-functionality/
+docs/3-runtime-testing-and-operations/
+```
+
+Do not create new top-level folders directly under `docs/`.
+
+Do not create or change normal source-of-truth Markdown files under:
+
+```plaintext
+docs/ai-source-of-truth-runs/
+```
+
+That folder is reserved for workflow machine-output files.
+
+When adding new source-of-truth knowledge, use this order:
+
+1. Find the correct existing Markdown file and append or safely update the delta there.
+2. If no correct file exists, create a meaningful subfolder under `docs/`.
+3. Put the new Markdown file inside that meaningful subfolder.
+
+The agent may create folders at deeper levels only inside the approved top-level source-of-truth folders when the hierarchy needs it.
+
+For example, it may create a task-specific or feature-specific folder under an existing area such as:
+
+```plaintext
+docs/1-current-state/<descriptive-active-task>/
+docs/2-project-functionality/<descriptive-feature-area>/
+docs/3-runtime-testing-and-operations/<descriptive-operational-area>/
+```
+
+New folder names, file names, branch names, log titles, and change descriptions must be descriptive.
+
+For dated log entries, milestone reports, daily reports, policy notes, and run summaries, use the current date supplied in the agent evidence payload.
+
+Do not infer, guess, or reuse stale dates from existing documentation, commit history, screenshots, or prior runs.
+
+Do not use vague numbered or generic names such as:
+
+```plaintext
+number1
+number2
+file1
+folder2
+new-note
+random-summary
+update
+```
+
+Prefer lowercase descriptive kebab-case names that identify the task, feature, component, or process.
+
+Allowed examples:
+
+```plaintext
+docs/1-current-state/chatgpt-api-doc-agent-log.md
+docs/2-project-functionality/source-of-truth-agent/overview.md
+docs/3-runtime-testing-and-operations/chatgpt-api-documentation-agent/progress.md
+```
+
+Forbidden examples:
+
+```plaintext
+docs/new-agent-note.md
+docs/random-summary.md
+docs/feature-update.md
+```
+
+The only exception is technical machine-output files that are intentionally managed by the workflow, such as:
+
+```plaintext
+docs/ai-source-of-truth-runs/latest-doc-agent-result.json
+```
+
+That file is workflow evidence, not source-of-truth Markdown knowledge.
 
 ## 10. Leading Repository Rule
 
@@ -324,3 +509,19 @@ The agent must not directly update protected branches.
 Documentation updates must be proposed through a branch and pull request.
 
 When uncertain, prefer a smaller accurate update with limitations over a broad speculative rewrite.
+
+## 18. Manual Apply Diff Range Rule
+
+Manual `workflow_dispatch` dry runs may inspect the default fallback diff range for quick smoke testing.
+
+Manual `workflow_dispatch` apply mode must not create documentation PRs from an implicit fallback range such as `HEAD~1..HEAD`.
+
+When manual apply mode is used, the operator must provide explicit base and head SHA values, unless the run is triggered by a real merged pull-request event.
+
+Reason:
+
+- manual smoke-test runs often happen after source-of-truth or documentation-agent setup commits
+- documenting the latest setup commit can produce stale text about a test that is already in progress
+- explicit SHA ranges make the documentation PR tied to the intended implementation change
+
+If manual apply mode has no explicit base/head SHA range, the runner must write the JSON result, mark review/human action as required, and avoid opening a documentation PR.

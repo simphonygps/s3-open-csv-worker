@@ -6,7 +6,11 @@ Progress measures accepted behavior and verified evidence, not number of files c
 
 ## Current Status
 
-- No active implementation task is declared by this bootstrap.
+- ChatGPT API documentation-agent rollout is active for this repository.
+- Rollout status: `structure-copied-local-prechecks-passed`.
+- This repository is the current destination repository for the rollout.
+- `s3-open-csv-worker` owns the local rollout task record, local verification evidence, and local completion decision.
+- Canonical shared files come from `C:\Project\GPSTracker_ws_s3_open`.
 - Documentation and parser hardening follow-ups remain in `active-tasks.md`.
 - Current priorities are tracked in `current-priorities.md`.
 - Completed or superseded task summaries move to `completed-task-archive.md`.
@@ -24,4 +28,21 @@ Progress measures accepted behavior and verified evidence, not number of files c
 
 ## Progress Log
 
-No progress entries have been recorded under the unified task lifecycle yet.
+### 2026-05-15 ChatGPT API Documentation Agent Rollout Started
+
+Progress before: `pending-for-s3-open-csv-worker-repository`
+
+Progress after: `structure-copied-local-prechecks-passed`
+
+What changed:
+
+- Shared documentation-agent files were copied or aligned from `C:\Project\GPSTracker_ws_s3_open`.
+- CSV-worker-specific `.ai/repo_ownership_rules.md` was preserved.
+- `docs/ai-source-of-truth-runs/latest-doc-agent-result.json` was added or confirmed for workflow machine output.
+- Active task and local rollout plan were opened.
+- Python runner compile check passed.
+- Shared file hashes match the canonical baseline for policy, prompt, workflow YAML, and Python runner.
+
+Next verification:
+
+- Push the setup to GitHub and run the two manual workflow tests from `dev`.

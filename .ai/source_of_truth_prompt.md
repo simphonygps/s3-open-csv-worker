@@ -146,6 +146,188 @@ If the existing documentation structure is not enough, propose new Markdown file
 
 Do not create new files unless they make the source of truth clearer.
 
+Automatic repository update targets must be Markdown source-of-truth files under:
+
+```plaintext
+docs/
+```
+
+Do not include these paths in `target_files`:
+
+```plaintext
+.ai/*
+.github/workflows/*
+scripts/*
+app/*
+src/*
+*.yml
+*.yaml
+*.py
+```
+
+Use those files as evidence only. If the merge changes the documentation agent itself, document that change in a `docs/` Markdown file, such as the active task, activity log, current progress, or a dedicated source-of-truth automation document.
+
+Do not create loose Markdown files directly under the `docs/` root.
+
+Automatic Markdown source-of-truth updates may be created or changed only inside these approved top-level folders:
+
+```plaintext
+docs/0-start-here/
+docs/1-current-state/
+docs/2-project-functionality/
+docs/3-runtime-testing-and-operations/
+```
+
+Do not create new top-level folders directly under `docs/`.
+
+Do not create or change normal source-of-truth Markdown files under:
+
+```plaintext
+docs/ai-source-of-truth-runs/
+```
+
+That folder is reserved for workflow machine-output files.
+
+When choosing a target location, use this order:
+
+1. Prefer the correct existing Markdown file and append or safely update only the needed delta.
+2. If no correct file exists, create a meaningful subfolder inside one of the approved top-level source-of-truth folders.
+3. Put the new Markdown file inside that subfolder.
+
+You may create folders at deeper levels only inside the approved top-level source-of-truth folders when needed.
+
+New folder names, file names, branch names, log titles, and change descriptions must be descriptive.
+
+For dated log entries, milestone reports, daily reports, policy notes, and run summaries, use the supplied `current_date_utc` value from the evidence payload.
+
+Do not infer, guess, or reuse stale dates from existing documentation, commit history, screenshots, or prior runs.
+
+For manual `workflow_dispatch` apply-mode runs, do not assume the fallback diff range is the intended task. Apply-mode documentation must be tied to an explicit supplied base/head SHA range or a real merged pull-request event. If explicit evidence is missing, return `review_required=true` and no `target_files`.
+
+Do not write forward-looking text that is already stale inside the current run context. For example, if the current run is a GitHub Actions workflow test, do not say workflow tests "will start" unless the evidence proves they truly have not started.
+
+Do not use vague numbered or generic names such as:
+
+```plaintext
+number1
+number2
+file1
+folder2
+new-note
+random-summary
+update
+```
+
+Prefer lowercase descriptive kebab-case names that identify the task, feature, component, or process.
+
+Allowed target examples:
+
+```plaintext
+docs/1-current-state/chatgpt-api-doc-agent-log.md
+docs/2-project-functionality/source-of-truth-agent/overview.md
+docs/3-runtime-testing-and-operations/chatgpt-api-documentation-agent/progress.md
+```
+
+Forbidden target examples:
+
+```plaintext
+docs/new-agent-note.md
+docs/random-summary.md
+docs/feature-update.md
+```
+
+When `operation` is `update`, the `content` value must be the complete intended file content, not only the changed section.
+
+Preserve unrelated existing content.
+
+Do not replace long source-of-truth files with short summaries.
+
+Do not delete active tasks, progress logs, TODO boards, acceptance criteria, completed sections, or stable reference content unless the evidence explicitly proves they must be removed.
+
+If you cannot safely preserve the existing file, return `review_required=true` and do not include that file in `target_files`.
+
+Use `operation: "append"` for:
+
+- `docs/1-current-state/activity-log.md`
+- `docs/1-current-state/chatgpt-api-doc-agent-log.md`
+- dated milestone reports
+- daily progress reports
+- run-result records
+- new evidence entries that should be added without rewriting older content
+
+For `append`, `content` must contain only the new Markdown section or entry to append.
+
+Use `operation: "update"` only when `content` contains the complete safe file content and preserves unrelated existing content.
+
+## Step 7.1 - Apply Merge-to-Dev Lifecycle Handling
+
+If the evidence shows a branch was merged into `dev` or `main`, treat the merge as a lifecycle event.
+
+Do not assume every merge means the task is 100 percent complete.
+
+Decide whether the task is:
+
+```plaintext
+complete
+active
+postponed
+cancelled
+unknown
+```
+
+If the task is complete:
+
+- mark the task as `complete`
+- record progress as 100 percent complete when evidence supports it
+- append a completion/progress entry under `docs/1-current-state/`
+- move or copy durable feature knowledge into the correct stable documentation under `docs/2-project-functionality/`
+- update `docs/1-current-state/active-tasks.md` so the task no longer appears as unfinished
+- update a completed-task archive if one exists and evidence supports it
+
+If the task remains active:
+
+- keep the task in `docs/1-current-state/`
+- record completed work from this merge
+- record remaining work
+
+If the task is postponed or cancelled:
+
+- update its status in current-state documentation
+- preserve enough reason and implementation context for a future AI agent
+
+Do not delete logs, history, progress records, or active-task context only because a task moved to stable project documentation.
+
+Use additive safe updates where possible.
+
+If you cannot safely move knowledge from `docs/1-current-state/` to `docs/2-project-functionality/`, set `review_required=true` or document the uncertainty instead of guessing.
+
+## Step 7.2 - Avoid Self-Documentation Loops
+
+Do not create source-of-truth updates for changes that only modify source-of-truth documentation or documentation-agent maintenance files.
+
+If the changed files are only in:
+
+```plaintext
+docs/
+.ai/
+.github/workflows/ai-source-of-truth.yml
+scripts/ai_update_source_of_truth.py
+```
+
+then return:
+
+```json
+{
+  "updates_required": false,
+  "review_required": false,
+  "target_files": [],
+  "confluence_updates": [],
+  "summary": "Skipped documentation-agent/source-of-truth maintenance-only change to avoid recursive documentation updates."
+}
+```
+
+Only document documentation-agent maintenance automatically when the runner or workflow explicitly forces that behavior.
+
 ## Step 8 - Decide Whether Confluence SMS Must Be Updated
 
 Set `confluence_update_required` to `true` when the merged change affects any of these areas:
@@ -318,10 +500,17 @@ Use this format:
   "target_files": [
     {
       "repository": "",
-      "path": "",
+      "path": "docs/path/to/source-of-truth-file.md",
       "operation": "update",
       "reason": "",
       "content": ""
+    },
+    {
+      "repository": "",
+      "path": "docs/1-current-state/activity-log.md",
+      "operation": "append",
+      "reason": "Append a dated milestone report without rewriting existing log history.",
+      "content": "## YYYY-MM-DD <Milestone Title>\n\n..."
     }
   ],
   "confluence_updates": [

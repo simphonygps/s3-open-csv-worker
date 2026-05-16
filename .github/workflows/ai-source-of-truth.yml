@@ -1,25 +1,41 @@
 name: AI Source of Truth Update
 
 on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - dev
   workflow_dispatch:
     inputs:
       base_sha:
-        description: Optional base SHA for manual dry run
+        description: Optional base SHA; required for manual apply mode
         required: false
+        type: string
       head_sha:
-        description: Optional head SHA for manual dry run
+        description: Optional head SHA; required for manual apply mode
         required: false
+        type: string
       apply_changes:
         description: Apply docs updates and open a draft PR
         required: false
+        type: choice
         default: 'false'
+        options:
+          - 'false'
+          - 'true'
       apply_confluence:
         description: Append Confluence SMS updates
         required: false
+        type: choice
         default: 'false'
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   update-source-of-truth:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,16 +71,17 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
-          DOCS_BASE_SHA: ${{ inputs.base_sha }}
-          DOCS_HEAD_SHA: ${{ inputs.head_sha }}
-          DOCS_AGENT_APPLY: ${{ inputs.apply_changes }}
-          DOCS_CONFLUENCE_APPLY: ${{ inputs.apply_confluence }}
+          DOCS_BASE_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.base_sha || '' }}
+          DOCS_HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.head_sha || '' }}
+          DOCS_AGENT_APPLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.apply_changes || 'false' }}
+          DOCS_CONFLUENCE_APPLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.apply_confluence || 'false' }}
         run: |
           python scripts/ai_update_source_of_truth.py
 
       - name: Upload documentation agent result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-source-of-truth-result
           path: docs/ai-source-of-truth-runs/latest-doc-agent-result.json
-          if-no-files-found: error
+          if-no-files-found: warn

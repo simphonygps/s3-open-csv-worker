@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -43,11 +44,44 @@ MAX_CHANGED_FILES = int(os.environ.get("DOCS_MAX_CHANGED_FILES", "100"))
 MAX_DIFF_CHARS = int(os.environ.get("DOCS_MAX_DIFF_CHARS", "80000"))
 APPLY_CHANGES = os.environ.get("DOCS_AGENT_APPLY", "").lower() == "true"
 APPLY_CONFLUENCE = os.environ.get("DOCS_CONFLUENCE_APPLY", "").lower() == "true"
+FORCE_SELF_DOCUMENTATION = os.environ.get("DOCS_AGENT_FORCE_SELF_DOCUMENTATION", "").lower() == "true"
+ALLOW_IMPLICIT_MANUAL_APPLY = (
+    os.environ.get("DOCS_ALLOW_IMPLICIT_MANUAL_APPLY", "").lower() == "true"
+)
 DOCS_BRANCH_PREFIX = os.environ.get("DOCS_BRANCH_PREFIX", "docs/ai-source-of-truth")
 CONFLUENCE_SPACE_KEY = os.environ.get("CONFLUENCE_SPACE_KEY", "SMS")
 CONFLUENCE_ACTIVE_TASKS_TITLE = os.environ.get(
     "CONFLUENCE_ACTIVE_TASKS_TITLE",
     "07 - Active Projects And Current Tasks",
+)
+ALLOWED_SOURCE_OF_TRUTH_ROOTS = {
+    "0-start-here",
+    "1-current-state",
+    "2-project-functionality",
+    "3-runtime-testing-and-operations",
+}
+GENERIC_DOC_PATH_PARTS = {
+    "doc",
+    "docs",
+    "file",
+    "folder",
+    "item",
+    "new",
+    "note",
+    "notes",
+    "other",
+    "random",
+    "summary",
+    "temp",
+    "test",
+    "todo",
+    "update",
+}
+GENERIC_DOC_PATH_PATTERN = re.compile(
+    r"^(?:[0-9]+|"
+    r"(?:doc|file|folder|item|note|summary|test|todo|update|number)[-_]?[0-9]+|"
+    r"(?:new|random|temp)[-_].*)$",
+    re.IGNORECASE,
 )
 
 
@@ -80,21 +114,21 @@ def load_event() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def get_diff_range(event: dict[str, Any]) -> tuple[str, str]:
+def get_diff_range(event: dict[str, Any]) -> tuple[str, str, str]:
     manual_base = os.environ.get("DOCS_BASE_SHA")
     manual_head = os.environ.get("DOCS_HEAD_SHA")
     if manual_base and manual_head:
-        return manual_base, manual_head
+        return manual_base, manual_head, "manual_input"
 
     pull_request = event.get("pull_request") or {}
     base_sha = pull_request.get("base", {}).get("sha")
     head_sha = pull_request.get("head", {}).get("sha")
     if base_sha and head_sha:
-        return base_sha, head_sha
+        return base_sha, head_sha, "pull_request_event"
 
     head = os.environ.get("GITHUB_SHA") or "HEAD"
     base = f"{head}~1"
-    return base, head
+    return base, head, "fallback_previous_commit"
 
 
 def collect_existing_docs() -> dict[str, str]:
@@ -123,10 +157,126 @@ def collect_existing_docs() -> dict[str, str]:
     return docs
 
 
+def is_documentation_agent_maintenance_path(path_value: str) -> bool:
+    normalized = path_value.replace("\\", "/").strip()
+    if not normalized:
+        return True
+    if normalized.startswith("docs/"):
+        return True
+    if normalized.startswith(".ai/"):
+        return True
+    if normalized == ".github/workflows/ai-source-of-truth.yml":
+        return True
+    if normalized == "scripts/ai_update_source_of_truth.py":
+        return True
+    return False
+
+
+def should_skip_self_documentation(payload: dict[str, Any]) -> bool:
+    if FORCE_SELF_DOCUMENTATION:
+        return False
+    changed_files = [str(path) for path in payload.get("changed_files", [])]
+    if not changed_files:
+        return False
+    if not all(is_documentation_agent_maintenance_path(path) for path in changed_files):
+        return False
+
+    commit_messages = str(payload.get("commit_messages") or "").lower()
+    explicit_feature_terms = (
+        "telemetry",
+        "api endpoint",
+        "database",
+        "frontend",
+        "android",
+        "worker",
+        "ingestion",
+        "runtime",
+    )
+    if any(term in commit_messages for term in explicit_feature_terms):
+        return False
+    return True
+
+
+def self_documentation_skip_result(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "updates_required": False,
+        "review_required": False,
+        "task": {
+            "name": "Documentation-agent maintenance commit",
+            "feature": "ChatGPT API Documentation Agent for Source-Of-Truth Updates",
+            "status": "active",
+            "leading_repository": payload.get("repository") or "unknown",
+            "affected_repositories": [payload.get("repository") or "unknown"],
+        },
+        "implementation_components": {
+            "changed_files": payload.get("changed_files", []),
+        },
+        "target_files": [],
+        "confluence_updates": [],
+        "summary": (
+            "Skipped automatic source-of-truth update because the diff contains only "
+            "documentation/source-of-truth or documentation-agent maintenance files. "
+            "This prevents recursive PRs that document documentation-agent documentation. "
+            "Set DOCS_AGENT_FORCE_SELF_DOCUMENTATION=true only when this maintenance work "
+            "must be documented automatically."
+        ),
+        "evidence_used": [
+            "changed_files",
+            "commit_messages",
+            "self-documentation recursion guard",
+        ],
+        "limitations": [],
+    }
+
+
+def should_block_manual_apply_without_explicit_range(payload: dict[str, Any]) -> bool:
+    if not APPLY_CHANGES:
+        return False
+    if ALLOW_IMPLICIT_MANUAL_APPLY:
+        return False
+    if payload.get("event_name") != "workflow_dispatch":
+        return False
+    return payload.get("diff_range_source") == "fallback_previous_commit"
+
+
+def manual_apply_without_explicit_range_result(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "updates_required": False,
+        "review_required": True,
+        "task": {
+            "name": "Manual documentation-agent apply blocked",
+            "feature": "ChatGPT API Documentation Agent for Source-Of-Truth Updates",
+            "status": "active",
+            "leading_repository": payload.get("repository") or "unknown",
+            "affected_repositories": [payload.get("repository") or "unknown"],
+        },
+        "implementation_components": {
+            "changed_files": payload.get("changed_files", []),
+        },
+        "target_files": [],
+        "confluence_updates": [],
+        "summary": (
+            "Manual apply mode was blocked because no explicit base/head SHA range "
+            "was supplied. Manual apply must document a known diff range so it does "
+            "not create stale or accidental documentation PRs from the latest commit."
+        ),
+        "evidence_used": [
+            "workflow_dispatch event",
+            "DOCS_AGENT_APPLY=true",
+            "missing DOCS_BASE_SHA/DOCS_HEAD_SHA",
+            "manual apply safety guard",
+        ],
+        "limitations": [
+            "MANUAL_APPLY_REQUIRES_EXPLICIT_BASE_AND_HEAD_SHA",
+        ],
+    }
+
+
 def build_input() -> dict[str, Any]:
     event = load_event()
-    base_sha, head_sha = get_diff_range(event)
+    base_sha, head_sha, diff_range_source = get_diff_range(event)
     pull_request = event.get("pull_request") or {}
+    now_utc = datetime.now(timezone.utc)
 
     changed_files = run_git(["diff", "--name-only", base_sha, head_sha]).splitlines()
     diff_stat = run_git(["diff", "--stat", base_sha, head_sha])
@@ -139,8 +289,12 @@ def build_input() -> dict[str, Any]:
 
     return {
         "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+        "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+        "current_date_utc": now_utc.date().isoformat(),
+        "current_timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "base_sha": base_sha,
         "head_sha": head_sha,
+        "diff_range_source": diff_range_source,
         "merge_commit_sha": pull_request.get("merge_commit_sha") or os.environ.get("GITHUB_SHA", ""),
         "pr": {
             "number": pull_request.get("number"),
@@ -227,12 +381,128 @@ def ensure_safe_doc_path(path_value: str, repo_root: Path = ROOT) -> Path:
         raise ValueError(f"Only docs/ Markdown files may be updated: {path_value}")
     if path.suffix.lower() != ".md":
         raise ValueError(f"Only Markdown files may be updated: {path_value}")
+    relative_to_docs = path.parts[1:]
+    if len(relative_to_docs) < 2:
+        raise ValueError(
+            "Source-of-truth Markdown files must not be created or changed directly under docs/; "
+            "use an existing docs subfolder or create a meaningful subfolder."
+        )
+    if relative_to_docs[0] not in ALLOWED_SOURCE_OF_TRUTH_ROOTS:
+        allowed = ", ".join(sorted(ALLOWED_SOURCE_OF_TRUTH_ROOTS))
+        raise ValueError(
+            "Source-of-truth Markdown files may only be created or changed inside approved "
+            f"top-level docs folders: {allowed}. Target root was: {relative_to_docs[0]}"
+        )
+    validate_descriptive_doc_path(path_value, relative_to_docs)
 
     resolved = (repo_root / path).resolve()
     docs_root = (repo_root / "docs").resolve()
     if docs_root not in resolved.parents:
         raise ValueError(f"Resolved path escapes docs/: {path_value}")
     return resolved
+
+
+def validate_descriptive_doc_path(path_value: str, relative_to_docs: tuple[str, ...]) -> None:
+    for index, part in enumerate(relative_to_docs):
+        name = Path(part).stem if index == len(relative_to_docs) - 1 else part
+        normalized = name.strip().lower()
+        if not normalized:
+            raise ValueError(f"Documentation path contains an empty name: {path_value}")
+        if normalized in GENERIC_DOC_PATH_PARTS or GENERIC_DOC_PATH_PATTERN.match(normalized):
+            raise ValueError(
+                "Documentation folders and files must use descriptive names, not generic names "
+                f"such as '{name}'."
+            )
+        if index == len(relative_to_docs) - 1 and len(normalized) < 6:
+            raise ValueError(
+                "Documentation file names must be descriptive enough to explain the subject: "
+                f"{path_value}"
+            )
+
+
+def validate_model_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep generated updates constrained to repository source-of-truth docs."""
+    valid_targets: list[dict[str, Any]] = []
+    rejected_targets: list[tuple[str, str]] = []
+
+    for item in result.get("target_files", []):
+        if not isinstance(item, dict):
+            rejected_targets.append(("INVALID_TARGET_FILE_ITEM", "<non-object target_files item>"))
+            continue
+        path_value = str(item.get("path") or "")
+        try:
+            target_path = ensure_safe_doc_path(path_value)
+        except ValueError as exc:
+            rejected_targets.append(("INVALID_NON_DOC_TARGET_FILE", f"{path_value}: {exc}"))
+            continue
+        operation = str(item.get("operation") or "update").lower()
+        if operation not in {"create", "update", "append"}:
+            rejected_targets.append(("INVALID_DOC_OPERATION", f"{path_value}: unsupported operation {operation}"))
+            continue
+        if operation == "update" and target_path.exists():
+            existing_content = target_path.read_text(encoding="utf-8", errors="replace")
+            proposed_content = str(item.get("content") or "")
+            if is_destructive_rewrite(existing_content, proposed_content):
+                rejected_targets.append(
+                    (
+                        "UNSAFE_DESTRUCTIVE_DOC_REWRITE",
+                        f"{path_value}: proposed update removes too much existing source-of-truth content",
+                    )
+                )
+                continue
+        valid_targets.append(item)
+
+    if not rejected_targets:
+        return result
+
+    result = dict(result)
+    result["target_files"] = valid_targets
+    result["review_required"] = True
+    limitations = list(result.get("limitations") or [])
+    limitations.extend(f"{code}: {message}" for code, message in rejected_targets)
+    result["limitations"] = limitations
+    summary = str(result.get("summary") or "")
+    rejected_codes = {code for code, _message in rejected_targets}
+    if rejected_codes == {"UNSAFE_DESTRUCTIVE_DOC_REWRITE"}:
+        reason = "the model proposed a destructive rewrite of existing source-of-truth content"
+    else:
+        reason = "the model proposed invalid or unsafe documentation targets"
+    result["summary"] = (
+        summary
+        + f"\n\nAutomatic apply is blocked because {reason}."
+    ).strip()
+    return result
+
+
+def is_destructive_rewrite(existing_content: str, proposed_content: str) -> bool:
+    if not existing_content.strip():
+        return False
+    if not proposed_content.strip():
+        return True
+
+    existing_lines = [line for line in existing_content.splitlines() if line.strip()]
+    proposed_lines = [line for line in proposed_content.splitlines() if line.strip()]
+    if len(existing_content) > 4000 and len(proposed_content) < int(len(existing_content) * 0.8):
+        return True
+    if len(existing_lines) > 80 and len(proposed_lines) < int(len(existing_lines) * 0.8):
+        return True
+
+    existing_headings = {
+        line.strip()
+        for line in existing_content.splitlines()
+        if line.lstrip().startswith("#")
+    }
+    proposed_headings = {
+        line.strip()
+        for line in proposed_content.splitlines()
+        if line.lstrip().startswith("#")
+    }
+    if len(existing_headings) >= 3:
+        missing_headings = existing_headings - proposed_headings
+        if len(missing_headings) > max(2, len(existing_headings) // 4):
+            return True
+
+    return False
 
 
 def current_repo_matches(target_repository: str | None, current_repository: str) -> bool:
@@ -374,7 +644,7 @@ def apply_documentation_updates(
     updated_paths: list[str] = []
     for item in target_files:
         operation = str(item.get("operation") or "update").lower()
-        if operation not in {"create", "update"}:
+        if operation not in {"create", "update", "append"}:
             raise ValueError(f"Unsupported documentation operation: {operation}")
         content = item.get("content")
         if not isinstance(content, str) or not content.strip():
@@ -382,7 +652,11 @@ def apply_documentation_updates(
 
         target_path = ensure_safe_doc_path(str(item.get("path") or ""), repo_root)
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        if operation == "append" and target_path.exists():
+            existing = target_path.read_text(encoding="utf-8", errors="replace").rstrip()
+            target_path.write_text(existing + "\n\n" + content.strip() + "\n", encoding="utf-8")
+        else:
+            target_path.write_text(content.rstrip() + "\n", encoding="utf-8")
         updated_paths.append(target_path.relative_to(repo_root).as_posix())
 
     return updated_paths
@@ -819,7 +1093,13 @@ def main() -> None:
         raise RuntimeError("OPENAI_API_KEY is required.")
 
     payload = build_input()
-    result = call_openai(payload)
+    if should_block_manual_apply_without_explicit_range(payload):
+        result = manual_apply_without_explicit_range_result(payload)
+    elif should_skip_self_documentation(payload):
+        result = self_documentation_skip_result(payload)
+    else:
+        result = call_openai(payload)
+    result = validate_model_result(result)
     write_result(result)
 
     if not APPLY_CHANGES:

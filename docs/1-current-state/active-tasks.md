@@ -1,6 +1,69 @@
 # Active Tasks
 
-No active implementation task is declared by this bootstrap.
+## Priority 1: Replicate ChatGPT API Documentation Agent Into s3-open-csv-worker Repository
+
+Status: `active-in-progress`
+
+Progress: `structure-copied-local-prechecks-passed`
+
+Current destination repository: `s3-open-csv-worker`
+
+Current local path: `C:\Project\Docker compose\s3-open-csv-worker`
+
+Current GitHub repository: `simphonygps/s3-open-csv-worker`
+
+Local leading repository for this rollout record: `s3-open-csv-worker`
+
+Canonical baseline source repository: `GPSTracker_ws_s3_open`
+
+Canonical baseline source path: `C:\Project\GPSTracker_ws_s3_open`
+
+Detailed rollout plan: `docs/1-current-state/documentation-agent-repository-rollout-plan.md`
+
+### Purpose
+
+Replicate the tested ChatGPT API documentation-agent baseline into this S3 Open CSV/offline parser worker repository without losing the repository-specific CSV worker ownership rules.
+
+This repository is the current destination for the cross-repository rollout. For this local activity, `s3-open-csv-worker` owns the local task description, local verification evidence, and local completion record. The canonical shared policy, prompt, workflow, and Python runner still come from `GPSTracker_ws_s3_open`.
+
+### Required Local Result
+
+- `.ai/source_of_truth_policy.md` matches the canonical baseline.
+- `.ai/source_of_truth_prompt.md` matches the canonical baseline.
+- `.github/workflows/ai-source-of-truth.yml` matches the canonical baseline.
+- `scripts/ai_update_source_of_truth.py` matches the canonical baseline.
+- `.ai/repo_ownership_rules.md` remains s3-open-csv-worker-specific and is not overwritten.
+- `docs/ai-source-of-truth-runs/latest-doc-agent-result.json` exists for workflow machine output.
+- The source-of-truth hierarchy remains limited to the approved roots:
+  - `docs/0-start-here/`
+  - `docs/1-current-state/`
+  - `docs/2-project-functionality/`
+  - `docs/3-runtime-testing-and-operations/`
+  - `docs/ai-source-of-truth-runs/`
+
+### Repository-Specific Ownership To Preserve
+
+This repository owns S3 Open offline CSV file parsing, supported offline file branch selection owned by this worker, CSV header aliases and file-contract behavior, row validation and row rejection behavior, mapping CSV/offline-file fields into Simphony canonical telemetry, `soft_data` insertion performed by this worker, best-effort `telemetry_etl_records` metadata written by this worker, `s3_processed_files` lifecycle/counters/partial-failure state/retention surfaces, and parser-worker runtime/deployment/verification behavior.
+
+It must not become the leading source for presign generation, upload authorization, upload metadata receive, frontend visibility, online HTTP telemetry ingestion, or Traccar compatibility execution unless a current architecture decision explicitly assigns that ownership here.
+
+### Verification Plan
+
+1. Compile the Python runner locally with `python -m py_compile scripts\ai_update_source_of_truth.py`.
+2. Confirm shared file hashes match the canonical baseline.
+3. Push the aligned files to `docs/source-of-truth-hierarchy`, `dev`, and `main`.
+4. Run the GitHub Actions workflow from `dev` with:
+   - `Apply docs updates and open a draft PR = false`
+   - `Append Confluence SMS updates = false`
+5. If the dry run succeeds, run the controlled apply guard test from `dev` with:
+   - `Apply docs updates and open a draft PR = true`
+   - `Append Confluence SMS updates = false`
+   - empty optional base/head SHA fields
+6. Confirm the guarded apply-mode run opens no PR and reports `MANUAL_APPLY_REQUIRES_EXPLICIT_BASE_AND_HEAD_SHA`.
+
+### Current Next Step
+
+Commit and push the aligned setup, then perform the two GitHub workflow tests from `dev`.
 
 Initial next documentation task, in priority order:
 
