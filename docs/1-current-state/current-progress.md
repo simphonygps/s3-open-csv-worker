@@ -6,6 +6,10 @@ Progress measures accepted behavior and verified evidence, not number of files c
 
 ## Current Status
 
+- 2026-09-29 AP-00-SSS-V1: protected three-file parser candidate implemented;
+  48 local tests and six subtests pass. Not live adopted yet. See
+  `../3-runtime-testing-and-operations/server-secret-store/overview.md`.
+
 - ChatGPT API documentation-agent rollout is completed for this repository.
 - Rollout status: `completed-for-s3-open-csv-worker-repository`.
 - The completed rollout record now lives under `docs/3-runtime-testing-and-operations/`.

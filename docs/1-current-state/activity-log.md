@@ -17,6 +17,11 @@ Verification evidence:
 Open risks:
 Next step:
 Source-of-truth docs updated:
+
+2026-09-29 AP-00-SSS-V1 parser checkpoint: added strict three-file readers,
+closed error metadata, public-only build allowlist and exact dependency inputs.
+48 focused tests/six subtests pass; live qualification/adoption remains next.
+No data/retention runs or source relocation of original working trees.
 ```
 
 ## 2026-05-15 Documentation Agent Rollout: s3-open-csv-worker Structure Copied
@@ -111,4 +116,3 @@ Source-of-truth docs updated:
 - `docs/1-current-state/completed-task-archive.md`
 - `docs/1-current-state/activity-log.md`
 - `docs/3-runtime-testing-and-operations/deployment-and-config/documentation-agent-rollout-and-tests.md`
-

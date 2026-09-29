@@ -362,7 +362,7 @@ def insert_soft_data_rows(rows: list[dict]):
             conn.commit()
         except Exception:
             conn.rollback()
-            logger.exception("[DB] Failed to insert batch into soft_data")
+            logger.error("[DB] Failed to insert batch into soft_data")
             raise
 
 

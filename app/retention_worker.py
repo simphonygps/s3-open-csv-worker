@@ -502,7 +502,7 @@ def run_retention_check():
                 print("  -> deleted from S3 and marked status='deleted' in DB")
             except Exception as e:
                 err_code = type(e).__name__
-                err_msg = str(e)
+                err_msg = type(e).__name__
                 _update_status(
                     bucket,
                     key,
@@ -511,7 +511,7 @@ def run_retention_check():
                     error_message=err_msg,
                 )
                 delete_error_count += 1
-                logger.exception(
+                logger.error(
                     "[RETENTION] Failed to delete %s/%s from S3", bucket, key
                 )
                 print(

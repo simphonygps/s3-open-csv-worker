@@ -58,10 +58,10 @@ async def health_db():
         ensure_processed_table()
         return {"status": "ok"}
     except Exception as e:
-        logger.exception("DB health check failed")
+        logger.error("DB health check failed (%s)", type(e).__name__)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "detail": str(e)},
+            content={"status": "error", "detail": "database readiness failed"},
         )
 
 
@@ -76,7 +76,7 @@ async def health_s3():
     If we can read non-empty bytes, S3/MinIO is considered "ok".
     Otherwise we return 500 with the error.
     """
-    bucket = "simphony-dev"
+    bucket = settings.s3_bucket
     key = "csv-worker/test-download.csv"
 
     try:
@@ -94,10 +94,10 @@ async def health_s3():
         )
         return {"status": "ok"}
     except Exception as e:
-        logger.exception("S3 health check failed")
+        logger.error("S3 health check failed (%s)", type(e).__name__)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "detail": str(e)},
+            content={"status": "error", "detail": "storage readiness failed"},
         )
 
 
@@ -156,10 +156,10 @@ def handle_object(bucket: str, key: str):
             bucket,
             key,
         )
-        preview = data[:200] if data else b""
-        logger.info("[S3] First 200 bytes for %s/%s: %r", bucket, key, preview)
+        # Payload bytes may contain personal telemetry; never copy them to logs.
+        logger.info("[S3] Downloaded object bytes: %d", len(data))
     except Exception as e:
-        logger.exception(
+        logger.error(
             "[S3] Failed to download object %s/%s",
             bucket,
             key,
@@ -169,7 +169,7 @@ def handle_object(bucket: str, key: str):
             bucket=bucket,
             key=key,
             error_code="DOWNLOAD_ERROR",
-            error_message=str(e),
+            error_message=type(e).__name__,
         )
         return
 
@@ -188,13 +188,13 @@ def handle_object(bucket: str, key: str):
             summary,
         )
     except Exception as e:
-        logger.exception("[INGEST] Failed to process file for %s/%s", bucket, key)
+        logger.error("[INGEST] Failed to process file for %s/%s (%s)", bucket, key, type(e).__name__)
         # Mark as error in lifecycle table (no reliable counters here)
         mark_object_processed_error(
             bucket=bucket,
             key=key,
             error_code="FILE_PROCESS_ERROR",
-            error_message=str(e),
+            error_message=type(e).__name__,
         )
         return
 
