@@ -1,0 +1,25 @@
+{
+  "applied": true,
+  "artifact_id": "442d4b52c9081dfb3dc8997cb8b942d8f8c83ae69457703844306d7070aaba4c",
+  "base": "python@sha256:70e8e937c1da72df1688e883a2108b0feff03381187fa78eca6d9b10df411320",
+  "build_network": "none",
+  "default_sss_enforced": true,
+  "dependency_artifact": "99f5bafab669cd6288d7ed7f15cbcd6b575a7ea930e38115f0706d513ebf8a21",
+  "dependency_check_passed": true,
+  "image": "sha256:eaf047dda2cf047094d80d6daab2770cfef7ab7c4dc7fe7ca402e2f97c65be9c",
+  "known_env_material_matches": 0,
+  "limitations": [
+    "Known ENV scan does not cover every native file or unknown provider credential.",
+    "This image is not live-adopted or full-feature/startup/recovery-qualified."
+  ],
+  "live_consumers_changed": false,
+  "live_container_ids_unchanged": true,
+  "observed_at": "2026-09-29T08:25:02.457575+00:00",
+  "preflight_passed": true,
+  "public_source_manifest": "/opt/amberping/dev/build-candidates/442d4b52c9081dfb3dc8997cb8b942d8f8c83ae69457703844306d7070aaba4c/manifest.json",
+  "schema_version": 1,
+  "secret_values_exported": false,
+  "source_commit": "a288f682641c59fc579b705c5195c4e3838dbe39",
+  "source_files": 9,
+  "tag": "amberping-dev-csv:sss-442d4b52c9081dfb3dc8997c"
+}

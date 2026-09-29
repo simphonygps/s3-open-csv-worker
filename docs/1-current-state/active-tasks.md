@@ -19,6 +19,9 @@ recoverable exchange with separate public configuration and no secret ENV.
 Current focus/next step: add protected readers/tests on `origin/dev` baseline
 `2f920176d81f8a917beb4b5e002c20ec23a3d057`; nine original Python files match live.
 
+2026-09-29 08:31 UTC milestone: all local/live reader and repeat checks passed;
+current next step is coordinator final current-layout recovery/rotation gates.
+
 Acceptance: actual DB/S3 positive and negative authentication; preserved parser,
 idempotency/lifecycle tables and retention parameters; exact backup-reference
 admission before runtime exchange; no whole-store mounts or copied DB/objects;

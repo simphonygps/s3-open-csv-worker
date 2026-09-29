@@ -1,5 +1,19 @@
 # DEV parser SSS boundary
 
+## Live checkpoint — 2026-09-29 08:31 UTC
+
+This supersedes candidate-only wording below. Image `eaf047dd...` is live after
+operation `9589ce74-7aa6-49d0-aabe-25737374f38f` at 08:28:33; repeat 08:29:00
+passed unchanged. Native DB/S3 positive and wrong-password/key denial, existing
+lifecycle schema, parser fixtures without writes, container/host health passed.
+Original stopped container retained, three existing versions reused, no issuer
+rotation or stored data copied/deleted. Collector `5741c213...` admitted exact
+references before cutover. Coordinator generation 23 / 45 projections; final
+fresh Full/Partial reconstruction remains a bundle acceptance gate.
+
+First native fixture failed because the test newline was double escaped;
+corrected fixture passed against the same image. Both attempts are retained.
+
 2026-09-29, active development. Coordinator: `simphonygps/ios`, AP-00-SSS-V1.
 
 Candidate only until a dated coordinator adoption receipt supersedes this text.

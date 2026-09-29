@@ -6,6 +6,10 @@ Progress measures accepted behavior and verified evidence, not number of files c
 
 ## Current Status
 
+- 2026-09-29 08:31 UTC: parser live adoption/repeat/native checks passed;
+  original retained, no data migration/retention execution. Final refreshed
+  archive reconstruction and full SSS bundle closure remain at coordinator.
+
 - 2026-09-29 AP-00-SSS-V1: protected three-file parser candidate implemented;
   48 local tests and six subtests pass. Not live adopted yet. See
   `../3-runtime-testing-and-operations/server-secret-store/overview.md`.
